@@ -7,6 +7,7 @@ class LeNet_5(keras.Model):
     DOI: 10.1109/5.726791
 
     Two versions: LeNet-5 and LeNet-5-HALF
+    Implementation: https://datahacker.rs/lenet-5-implementation-tensorflow-2-0/
     '''
     _name = 'LeNet-5'
 
@@ -57,10 +58,55 @@ class LeNet_5(keras.Model):
         self.call(inputs)
 
 if __name__ == '__main__':
-    net = LeNet_5()
-    net.build()
-    net.summary()
+    # Change path
+    import os, sys
+    repo_path = os.path.abspath(os.path.join(__file__, '../..'))
+    assert os.path.basename(repo_path) == 'kd_tf', "Wrong parent folder. Please change to 'kd_tf'"
+    sys.path.append(repo_path)
+
+    import tensorflow_datasets as tfds
+
+    # Hyperparameters
+    ## Model
+    IMAGE_DIM = [32, 32, 1]
+    ## Training
+    NUM_EPOCHS = 10
+    LEARNING_RATE = 1e-3
+    BATCH_SIZE_TRAIN = 256
+    BATCH_SIZE_TEST  = 1024
+
+    tf.config.run_functions_eagerly(True)
+
+    # Load data
+    ds = tfds.load('mnist', as_supervised=True)
+    def preprocess(x, y):
+        x = tf.cast(x, tf.float32)/255.
+        x = tf.image.resize(x, IMAGE_DIM[0:2])
+        x = (x - 0.1307)/0.3081
+        return x, y
+    ds['train'] = ds['train'].map(preprocess).shuffle(60000).batch(BATCH_SIZE_TRAIN).prefetch(1)
+    ds['test'] = ds['test'].map(preprocess).batch(BATCH_SIZE_TEST).prefetch(1)
 
     net = LeNet_5(half=True)
     net.build()
     net.summary()
+    net.compile(
+        metrics=['accuracy'], 
+        optimizer=keras.optimizers.Adam(learning_rate=LEARNING_RATE),
+        loss=keras.losses.SparseCategoricalCrossentropy(from_logits=True))
+
+    best_callback = keras.callbacks.ModelCheckpoint(
+        filepath=f'./logs/{net.name}_best.h5',
+        monitor='val_accuracy',
+        verbose=1,
+        save_best_only=True,
+        save_weights_only=True,
+    )
+    net.fit(
+        ds['train'],
+        batch_size=BATCH_SIZE_TRAIN,
+        epochs=NUM_EPOCHS,
+        # callbacks=[best_callback],
+        shuffle=True,
+        validation_data=ds['test']
+    )
