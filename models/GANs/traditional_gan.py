@@ -3,10 +3,17 @@ import tensorflow as tf
 keras = tf.keras
 
 class Discriminator(keras.Model):
-    def __init__(self,
-                 image_dim:List[int]=[28, 28, 1],
-                 *args, **kwargs):
-        super().__init__(self, name='discriminator', *args, **kwargs)
+    """Discriminator for Generative Adversarial Networks
+    """    
+    _name = 'Discriminator'
+    
+    def __init__(self, image_dim:List[int]=[28, 28, 1], *args, **kwargs):
+        """Initialize discriminator.
+
+        Args:
+            image_dim (List[int], optional): Dimension of image. Defaults to [28, 28, 1].
+        """        
+        super().__init__(self, name=self._name, *args, **kwargs)
         self.image_dim = image_dim
 
         self.flatten      = keras.layers.Flatten(input_shape=[None, int(tf.math.reduce_prod(image_dim))], name='flatten')
@@ -32,11 +39,21 @@ class Discriminator(keras.Model):
         return x
 
 class Generator(keras.Model):
+    """Generator for Generative Adversarial Networks
+    """    
+    _name = 'Generator'
+
     def __init__(self,
                  latent_dim:List[int]=[64],
                  image_dim:List[int]=[28, 28, 1],
                  *args, **kwargs):
-        super().__init__(self, name='generator', *args, **kwargs)
+        """Initialize generator.
+
+        Args:
+            latent_dim (List[int], optional): Dimension of latent space. Defaults to [64].
+            image_dim (List[int], optional): Dimension of image. Defaults to [28, 28, 1].
+        """                 
+        super().__init__(self, name=self._name, *args, **kwargs)
         self.latent_dim = latent_dim
         self.image_dim = image_dim
 
@@ -45,7 +62,7 @@ class Generator(keras.Model):
         self.dense_2      = keras.layers.Dense(units=256, name='dense_2')
         self.leaky_relu_2 = keras.layers.LeakyReLU(alpha=0.1, name='leaky_relu_2')
         self.dense_3      = keras.layers.Dense(units=tf.math.reduce_prod(self.image_dim), name='dense_3')
-        self.sigmoid      = keras.layers.Activation(tf.nn.sigmoid, name='sigmoid')
+        self.tanh         = keras.layers.Activation(tf.nn.tanh, name='tanh')
 
     def call(self, inputs):
         x = self.dense_1(inputs)
@@ -53,29 +70,49 @@ class Generator(keras.Model):
         x = self.dense_2(x)
         x = self.leaky_relu_2(x)
         x = self.dense_3(x)
-        x = self.sigmoid(x)
+        x = self.tanh(x)
+        x = (x + 1)/2
         return x
 
 class GenerativeAdversarialNetwork(keras.Model):
+    """Generative Adversarial Networks
+    DOI: 10.48550/arXiv.1406.2661
+
+    Label: synthetic = 0, real = 1
+    """    
+    _name = 'GAN'
+    discrimator_class = Discriminator
+    generator_class = Generator
+
     def __init__(self,
                  generator:keras.Model=None,
                  discriminator:keras.Model=None,
-                 latent_dim:int=64,
+                 latent_dim:List[int]=[64],
                  image_dim:List[int]=[28, 28, 1],
                  *args, **kwargs):
-        super().__init__(self, name='Traditional GAN', *args, **kwargs)
+        """Initialize GAN.
+
+        Args:
+            generator (keras.Model, optional): Generator model. Defaults to None.
+            discriminator (keras.Model, optional): Discriminator model. Defaults to None.
+            latent_dim (List[int], optional): Dimension of latent space. Defaults to [64].
+            image_dim (List[int], optional): Dimension of image. Defaults to [28, 28, 1].
+        """        
+        super(GenerativeAdversarialNetwork, self).__init__(self, name=self._name, *args, **kwargs)
+        self.generator = generator
+        self.discriminator = discriminator
         self.latent_dim = latent_dim
         self.image_dim = image_dim
 
-        if generator is not None:
+        if self.generator is not None:
             self.generator = generator
         else:
-            self.generator = Generator(latent_dim=self.latent_dim, image_dim=self.image_dim)
+            self.generator = self.generator_class(latent_dim=self.latent_dim, image_dim=self.image_dim)
 
         if discriminator is not None:
             self.discriminator = discriminator
         else:
-            self.discriminator = Discriminator(image_dim=self.image_dim)
+            self.discriminator = self.discrimator_class(image_dim=self.image_dim)
 
     def call(self, inputs):
         x = self.generator(inputs)
@@ -83,23 +120,37 @@ class GenerativeAdversarialNetwork(keras.Model):
         return x
 
     def build(self):
+        super().build(input_shape=[None]+self.latent_dim)
         inputs = keras.layers.Input(shape=self.latent_dim)
         x = inputs
         for layer in self.layers:
             x = layer.call(x)
 
-        super().build(input_shape=[None]+self.latent_dim)
         self.call(inputs)
 
     def compile(self,
-                metrics,
-                disc_loss:keras.losses.Loss=keras.losses.BinaryCrossentropy(from_logits=True),
                 disc_optimizer:keras.optimizers.Optimizer=keras.optimizers.RMSprop(),
-                GAN_loss:keras.losses.Loss=keras.losses.BinaryCrossentropy(from_logits=True),
-                gen_optimizer:keras.optimizers.Optimizer=keras.optimizers.RMSprop()):
-        super().compile(metrics=metrics, loss=GAN_loss)
-        self.generator.compile(optimizer=gen_optimizer)
-        self.discriminator.compile(loss=disc_loss, optimizer=disc_optimizer)
+                gen_optimizer:keras.optimizers.Optimizer=keras.optimizers.RMSprop(),
+                loss_fn:keras.losses.Loss=keras.losses.BinaryCrossentropy(from_logits=True)):
+        """Compile GAN.
+
+        Args:
+            disc_optimizer (keras.optimizers.Optimizer, optional): Optimizer for discriminator.
+                Defaults to keras.optimizers.RMSprop().
+            gen_optimizer (keras.optimizers.Optimizer, optional): Optimizer for generator.
+                Defaults to keras.optimizers.RMSprop().
+            loss_fn (keras.losses.Loss, optional): Loss function.
+                Defaults to keras.losses.BinaryCrossentropy(from_logits=True).
+        """        
+        super().compile(optimizer=gen_optimizer, loss=loss_fn)
+        self.discriminator.compile(optimizer=disc_optimizer, loss=loss_fn)
+
+        self.loss_disc_metric = keras.metrics.Mean(name="loss_disc")
+        self.loss_gen_metric = keras.metrics.Mean(name="loss_gen")
+
+    @property
+    def metrics(self):
+        return [self.loss_disc_metric, self.loss_gen_metric]
 
     def train_step(self, data):
         # Unpack data
@@ -107,56 +158,48 @@ class GenerativeAdversarialNetwork(keras.Model):
         batch_size:int = x_real.shape[0]
 
         # Phase 1 - Training the discriminator
-        '''noise = tf.random.normal(shape=[batch_size, self.latent_dim[0]])
-        x_synthetic = self.generator(noise)
-        x_mixed = tf.concat([x_synthetic, x_real], axis=0)
-        y_mixed = tf.constant([[0.]] * batch_size + [[1.]] * batch_size)
+        latent_noise = tf.random.normal(shape=[batch_size, self.latent_dim[0]])
+        x_synthetic = self.generator(latent_noise)
+        x_combined = tf.concat([x_synthetic, x_real], axis=0)
+        y_combined = tf.concat([tf.zeros((batch_size, 1)), tf.ones((batch_size, 1))], axis=0)
+        # Add random noise to the labels - important trick!
+        # y_combined += 0.05 * tf.random.uniform(tf.shape(y_combined))
 
-        self.discriminator.trainable = True
-        self.discriminator.train_on_batch(x_mixed, y_mixed)'''
-        noise = tf.random.normal(shape=[batch_size, self.latent_dim[0]])
-        x_synthetic = self.generator(noise)
-        x_mixed = tf.concat([x_synthetic, x_real], axis=0)
-        y_mixed = tf.constant([[0.]] * batch_size + [[1.]] * batch_size)
         with tf.GradientTape() as tape:
-            pred = self.discriminator(x_mixed, training=True)
-            disc_loss = self.discriminator.loss(y_mixed, pred)           
-        # Compute gradients
+            prediction = self.discriminator(x_combined, training=True)
+            # loss_disc = self.loss_fn(y_combined, prediction)           
+            loss_disc = self.discriminator.loss(y_combined, prediction)           
+        # Back-propagation
         trainable_vars = self.discriminator.trainable_variables
-        gradients = tape.gradient(disc_loss, trainable_vars)        
-        # Update weights
+        gradients = tape.gradient(loss_disc, trainable_vars)        
+        # self.disc_optimizer.apply_gradients(zip(gradients, trainable_vars))
         self.discriminator.optimizer.apply_gradients(zip(gradients, trainable_vars))
-        # Update the metrics configured in `compile()`.
-        self.compiled_metrics.update_state(y_mixed, pred)
+        
 
         # Phase 2 - Training the generator
-        '''noise = tf.random.normal(shape=[batch_size, self.latent_dim[0]])
-        y2_synthetic = tf.constant([[1.]] * batch_size)
-        self.discriminator.trainable = False
-        self.train_on_batch(noise, y2_synthetic)'''
-        noise = tf.random.normal(shape=[batch_size, self.latent_dim[0]])
-        y2_synthetic = tf.constant([[1.]] * batch_size)
+        latent_noise = tf.random.normal(shape=[batch_size, self.latent_dim[0]])
+        y_synthetic = tf.ones((batch_size, 1))
         # self.discriminator.trainable = False
         with tf.GradientTape() as tape:
-            x2_synthetic = self.generator(noise)
-            pred2 = self.discriminator(x2_synthetic, training=False)
-            gen_loss = self.loss(y2_synthetic, pred2)
-        # Compute gradients
+            x_synthetic = self.generator(latent_noise)
+            prediction = self.discriminator(x_synthetic, training=False)
+            # loss_gen = self.loss_fn(y_synthetic, prediction)
+            loss_gen = self.loss(y_synthetic, prediction)
+        # Back-propagation
         trainable_vars = self.generator.trainable_variables
-        gradients = tape.gradient(gen_loss, trainable_vars)        
-        # Update weights
+        gradients = tape.gradient(loss_gen, trainable_vars)        
+        # self.gen_optimizer.apply_gradients(zip(gradients, trainable_vars))
         self.optimizer.apply_gradients(zip(gradients, trainable_vars))
-        # Update the metrics configured in `compile()`.
-        self.compiled_metrics.update_state(y2_synthetic, pred2)
+        
 
-
-        # Return a dict of performance
+        # Update the metrics, configured in 'compile()'.
         results = {m.name: m.result() for m in self.metrics}
+        self.loss_disc_metric.update_state(loss_disc)
+        self.loss_gen_metric.update_state(loss_gen)
         results.update({
-            "disc_loss": disc_loss,
-            "gen_loss": gen_loss
+            "loss_disc": loss_disc,
+            "loss_gen": loss_gen
         })
-    
         return results
 
     def summary(self):
@@ -176,7 +219,7 @@ if __name__ == '__main__':
     ## Training
     NUM_EPOCHS = 15
     BATCH_SIZE = 32
-    LEARNING_RATE = 5e-3
+    LEARNING_RATE = 0.002 # Optimal 0.005
     ## Plotting
     NUM_SYNTHETIC = 10
 
@@ -189,9 +232,9 @@ if __name__ == '__main__':
     gan.build()
     gan.summary()
     gan.compile(
-        metrics=['accuracy'],
         disc_optimizer=keras.optimizers.RMSprop(learning_rate=LEARNING_RATE),
-        gen_optimizer=keras.optimizers.RMSprop(learning_rate=LEARNING_RATE))
+        gen_optimizer=keras.optimizers.RMSprop(learning_rate=LEARNING_RATE),
+        loss_fn=keras.losses.BinaryCrossentropy(from_logits=True))
     gan.fit(
         x=x_train,
         y=y_train,
