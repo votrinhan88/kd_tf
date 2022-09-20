@@ -2,14 +2,15 @@ import tensorflow as tf
 keras = tf.keras
 
 class HintonNet(keras.Model):
-    """Baseline model in implemented in paper 'Distilling the Knowledge in a Neural Network' - Hinton et al. (2015)
+    """Baseline model in implemented in paper 'Distilling the Knowledge in a Neural
+    Network' - Hinton et al. (2015)
     DOI: 10.48550/arXiv.1503.02531
 
     Consist of two hidden fully-connected layers.
     - Teacher: 1200 nodes in each hidden layer
     - Student: 800 nodes in each hidden layer
     """    
-    _name = 'hintonNet'
+    _name = 'HintonNet'
 
     def __init__(self,
                  num_inputs:int=784,

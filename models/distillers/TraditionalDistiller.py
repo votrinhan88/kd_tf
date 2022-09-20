@@ -1,13 +1,14 @@
 import tensorflow as tf
 keras = tf.keras
 
-class DistillerTraditional(keras.Model):
+class TraditionalDistiller(keras.Model):
+    _name = 'TraditionalDistiller'
     '''
     Distilling the Knowledge in a Neural Network
     https://doi.org/10.48550/arXiv.1503.02531
     '''
-    def __init__(self, student:keras.Model, teacher:keras.Model):
-        super().__init__()
+    def __init__(self, student:keras.Model, teacher:keras.Model, *args, **kwargs):
+        super().__init__(name=self._name, *args, **kwargs)
         self.teacher = teacher
         self.student = student
 
@@ -20,18 +21,21 @@ class DistillerTraditional(keras.Model):
         alpha:float=0.1,
         temperature:float=4,
     ):
-        """ Configure the distiller.
+        """Configure the distiller.
 
         Args:
-            optimizer: Keras optimizer for the student weights
-            metrics: Keras metrics for evaluation
-            student_loss_fn: Loss function of difference between student
-                predictions and ground-truth
-            distillation_loss_fn: Loss function of difference between soft
-                student predictions and soft teacher predictions
-            alpha: weight to student_loss_fn and 1-alpha to distillation_loss_fn
-            temperature: Temperature for softening probability distributions.
-                Larger temperature gives softer distributions.
+            optimizer (keras.optimizers.Optimizer): Keras optimizer for the student
+                weights
+            metrics (_type_): Keras metrics for evaluation
+            student_loss_fn (keras.losses.Loss): Loss function of difference between
+                student predictions and ground-truth
+            distillation_loss_fn (keras.losses.Loss): Loss function of difference
+                between soft student predictions and soft teacher predictions
+            alpha (float, optional): weight to student_loss_fn and 1-alpha to
+                distillation_loss_fn. Defaults to 0.1.
+            temperature (float, optional): Temperature for softening probability
+                distributions. Larger temperature gives softer distributions.
+                Defaults to 4.
         """
         super().compile(optimizer=optimizer, metrics=metrics)
         self.student_loss_fn = student_loss_fn
@@ -107,7 +111,7 @@ if __name__ == '__main__':
     sys.path.append(os.path.realpath(os.path.dirname(os.path.dirname(os.path.dirname(sys.argv[0])))))
 
     import tensorflow_datasets as tfds
-    from models.resnet import resnet_v1
+    from models.ResNet import resnet_v1
     from dataloaders import get_CIFAR10
 
     # Configs
@@ -175,13 +179,13 @@ if __name__ == '__main__':
         monitor='val_accuracy',
         verbose=1,
         save_best_only=True,
-        save_weights_only = True)
+        save_weights_only=True)
     scheduler_callback = tf.keras.callbacks.LearningRateScheduler(scheduler)
     csv_logger = tf.keras.callbacks.CSVLogger(
         f'./logs/{student.name}_{int(ALPHA*10):02}_{TEMPERATURE:02}_student.csv',
         append=True)
 
-    distiller = DistillerTraditional(student=student, teacher=teacher)
+    distiller = TraditionalDistiller(student=student, teacher=teacher)
     distiller.compile(
         optimizer=optimizer,
         metrics=['accuracy'],
