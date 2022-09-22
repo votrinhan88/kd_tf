@@ -45,11 +45,7 @@ class DataFreeGenerator(keras.Model):
             name='conv_block_0'
         )
 
-        self.interpl_1 = keras.layers.Resizing(
-            height=2*self.init_dim[0],
-            width=2*self.init_dim[1],
-            interpolation='nearest',
-            crop_to_aspect_ratio=False)
+        self.upsamp_1 = keras.layers.UpSampling2D(size=(2, 2), interpolation="nearest", name='upsamp_1')
         self.conv_block_1 = keras.Sequential(
             layers=[
                 keras.layers.Conv2D(filters=128, kernel_size=3, strides=1, padding='same'),
@@ -59,11 +55,7 @@ class DataFreeGenerator(keras.Model):
             name='conv_block_1'
         )
         
-        self.interpl_2    = keras.layers.Resizing(
-            height=4*self.init_dim[0],
-            width=4*self.init_dim[1],
-            interpolation='nearest',
-            crop_to_aspect_ratio=False)
+        self.upsamp_2 = keras.layers.UpSampling2D(size=(2, 2), interpolation="nearest", name='upsamp_2')
         self.conv_block_2 = keras.Sequential(
             layers=[
                 keras.layers.Conv2D(filters=64, kernel_size=3, strides=1, padding='same'),
@@ -79,9 +71,9 @@ class DataFreeGenerator(keras.Model):
         x = self.dense(inputs)
         x = self.reshape(x)
         x = self.conv_block_0(x)
-        x = self.interpl_1(x)
+        x = self.upsamp_1(x)
         x = self.conv_block_1(x)
-        x = self.interpl_2(x)
+        x = self.upsamp_2(x)
         x = self.conv_block_2(x)
         # x = (x + 1)/2     # Authors do not normalize to [0, 1)
         return x
