@@ -86,6 +86,15 @@ class DC_Discriminator(keras.Model):
         x = self.dense(x)
         return x
 
+    def get_config(self):
+        return {
+            'image_dim': self.image_dim,
+        }
+
+    @classmethod
+    def from_config(cls, config):
+        return cls(**config)
+
 class DC_Generator(keras.Model):
     """Generator for DCGAN.
     """    
@@ -123,6 +132,16 @@ class DC_Generator(keras.Model):
         x = self.tanh(x)
         x = (x + 1)/2
         return x
+
+    def get_config(self):
+        return {
+            'latent_dim': self.latent_dim,
+            'image_dim': self.image_dim,
+        }
+
+    @classmethod
+    def from_config(cls, config):
+        return cls(**config)
 
 class DC_GenerativeAdversarialNetwork(GenerativeAdversarialNetwork):
     """Unsupervised Representation Learning with Deep Convolutional Generative

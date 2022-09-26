@@ -48,6 +48,18 @@ class HintonNet(keras.Model):
         super().build(input_shape=[None, self.num_inputs])
         self.call(inputs)
 
+    def get_config(self):
+        return {
+            'num_inputs': self.num_inputs,
+            'num_hiddens': self.num_hiddens,
+            'num_outputs': self.num_outputs
+        }
+
+    @classmethod
+    def from_config(cls, config):
+        return cls(**config)
+
+
 if __name__ == '__main__':
     hnet_large = HintonNet(num_inputs=784, num_hiddens=1200, num_outputs=10)
     hnet_large.build()

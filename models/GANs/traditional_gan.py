@@ -38,6 +38,15 @@ class Discriminator(keras.Model):
         # x = self.sigmoid(x)
         return x
 
+    def get_config(self):
+        return {
+            'image_dim': self.image_dim,
+        }
+
+    @classmethod
+    def from_config(cls, config):
+        return cls(**config)
+
 class Generator(keras.Model):
     """Generator for Generative Adversarial Networks
     """    
@@ -73,6 +82,16 @@ class Generator(keras.Model):
         x = self.tanh(x)
         x = (x + 1)/2
         return x
+
+    def get_config(self):
+        return {
+            'latent_dim': self.latent_dim,
+            'image_dim': self.image_dim
+        }
+
+    @classmethod
+    def from_config(cls, config):
+        return cls(**config)
 
 class GenerativeAdversarialNetwork(keras.Model):
     """Generative Adversarial Networks

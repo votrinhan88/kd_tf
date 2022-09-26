@@ -40,6 +40,7 @@ class DataFreeGenerator(keras.Model):
         super().__init__(self, name=self._name, *args, **kwargs)
         self.latent_dim = latent_dim
         self.image_dim = image_dim
+
         self.init_dim = [self.image_dim[0]//4, self.image_dim[1]//4]
 
         self.dense = keras.layers.Dense(units=self.init_dim[0] * self.init_dim[1] * 128)
@@ -86,6 +87,16 @@ class DataFreeGenerator(keras.Model):
         super().build(input_shape=[None]+self.latent_dim)
         inputs = keras.layers.Input(shape=self.latent_dim)
         self.call(inputs)
+
+    def get_config(self):
+        return {
+            'latent_dim': self.latent_dim,
+            'image_dim': self.image_dim,
+        }
+
+    @classmethod
+    def from_config(cls, config):
+        return cls(**config)
 
 class DataFreeDistiller(keras.Model):
     """Data-Free Learning of Student Networks - Chen et al. (2019)
@@ -677,7 +688,7 @@ if __name__ == '__main__':
     # Pretrained teacher (LeNet-5 traditional) 99.06%
     teacher = LeNet_5()
     teacher.build()
-    teacher.load_weights('./pretrained/MNIST/LeNet-5_tanh_AvgPool_9906.h5')
+    teacher.load_weights('./pretrained/mnist/LeNet-5_tanh_AvgPool_9906.h5')
     teacher.compile(metrics='accuracy')
     teacher.evaluate(ds['test'])
     teacher = add_fmap_output(model=teacher, fmap_layer='flatten')

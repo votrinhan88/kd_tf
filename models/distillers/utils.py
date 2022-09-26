@@ -6,6 +6,21 @@ import tensorflow as tf
 keras = tf.keras
 from tensorflow.python.platform import tf_logging as logging
 
+def add_fmap_output(model:keras.Model, fmap_layer:str) -> keras.Model:
+    """Extract a model's feature map and add to its outputs.
+
+    Args:
+        model (keras.Model): host model of feature map
+        fmap_layer (str): name of feature map layer
+
+    Returns:
+        keras.Model: host model with an additional feature map output
+    """
+    model = keras.Model(
+        inputs=model.layers[0].input,
+        outputs=[model.layers[-1].output, model.get_layer(fmap_layer).output],
+        name=model.name)
+    return model
 
 class CSVLogger_custom(keras.callbacks.CSVLogger):
     """Re-implementation of keras.callbacks.CSVLogger to use with model.fit() when
