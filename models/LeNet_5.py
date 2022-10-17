@@ -11,26 +11,36 @@ class LeNet_5(keras.Model):
     '''
     _name = 'LeNet-5'
 
-    def __init__(self, half:bool=False, input_dim:List[int]=[32, 32, 1], num_outputs:int=10, *args, **kwargs):        
+    def __init__(self,
+                 half:bool=False,
+                 input_dim:List[int]=[32, 32, 1],
+                 num_classes:int=10,
+                 return_logits:bool=False,
+                 **kwargs):
         """Initialize model.
-
-        Args:
-            half (bool, optional): flag to choose between LeNet-5 or LeNet-5-HALF. Defaults to False.
-            input_dim (List[int], optional): dimension of input images. Defaults to [32, 32, 1].
-            num_outputs (int, optional): number of output nodes. Defaults to 10.
-        """
-        assert isinstance(half, bool), "'half' should be of type bool"
         
-        if half == False:
-            super().__init__(name=self._name, *args, **kwargs)
+        Args:
+            `half`: flag to choose between LeNet-5 or LeNet-5-HALF. Defaults to `False`.
+            `input_dim`: dimension of input images. Defaults to `[32, 32, 1]`.
+            `num_classes`: number of output nodes. Defaults to `10`.
+            `return_logits`: flag to choose between return logits or probability.
+                Defaults to `False`.
+        """                 
+
+        assert isinstance(half, bool), '`half` must be of type bool'
+        assert isinstance(return_logits, bool), '`return_logits` must be of type bool.'
+        
+        if half is False:
+            super().__init__(name=self._name, **kwargs)
             divisor = 1
-        elif half == True:
-            super().__init__(name=self._name + '-HALF', *args, **kwargs)
+        elif half is True:
+            super().__init__(name=self._name + '-HALF', **kwargs)
             divisor = 2
         
         self.half = half
         self.input_dim = input_dim
-        self.num_outputs = num_outputs
+        self.num_classes = num_classes
+        self.return_logits = return_logits
 
         self.C1      = keras.layers.Conv2D(filters=6//divisor, kernel_size=5, strides=1, activation='tanh', padding='valid', name='C1')
         self.S2      = keras.layers.AveragePooling2D(pool_size=2, strides=2, padding='valid', name='S2')
@@ -39,7 +49,10 @@ class LeNet_5(keras.Model):
         self.C5      = keras.layers.Conv2D(filters=120//divisor, kernel_size=5, strides=1, activation='tanh', padding='valid', name='C5')
         self.flatten = keras.layers.Flatten(name='flatten')
         self.F6      = keras.layers.Dense(units=84//divisor, activation='tanh', name='F6')
-        self.F7      = keras.layers.Dense(units=self.num_outputs, name='F7')
+        if self.return_logits is False:
+            self.pred = keras.layers.Dense(units=self.num_classes, name='pred', activation=tf.nn.softmax)
+        elif self.return_logits is True:
+            self.logits = keras.layers.Dense(units=self.num_classes, name='logits')
 
     def call(self, inputs):
         x = self.C1(inputs)
@@ -49,49 +62,60 @@ class LeNet_5(keras.Model):
         x = self.C5(x)
         x = self.flatten(x)
         x = self.F6(x)
-        x = self.F7(x)
+        if self.return_logits is False:
+            x = self.pred(x)
+        elif self.return_logits is True:
+            x = self.logits(x)
         return x
 
     def build(self):
-        inputs = keras.layers.Input(shape=self.input_dim)
         super().build(input_shape=[None]+self.input_dim)
+        inputs = keras.layers.Input(shape=self.input_dim)
         self.call(inputs)
 
     def get_config(self):
-        return {
+        config = super().get_config()
+        config.update({
             'half': self.half,
             'input_dim': self.input_dim,
-            'num_outputs': self.num_outputs
-        }
-
-    @classmethod
-    def from_config(cls, config):
-        return cls(**config)
+            'num_classes': self.num_classes,
+            'return_logits': self.return_logits
+        })
+        return config
 
 class LeNet_5_ReLU_MaxPool(keras.Model):
-    '''Alternative version of LeNet-5 with ReLU activation and MaxPooling layers'''
+    '''Alternative version of LeNet-5 with ReLU activation and MaxPooling layers.'''
     _name = 'LeNet-5_ReLU_MaxPool'
 
-    def __init__(self, half:bool=False, input_dim:List[int]=[32, 32, 1], num_outputs:int=10, *args, **kwargs):        
+    def __init__(self,
+                 half:bool=False,
+                 input_dim:List[int]=[32, 32, 1],
+                 num_classes:int=10,
+                 return_logits:bool=False,
+                 **kwargs):        
         """Initialize model.
 
         Args:
             half (bool, optional): flag to choose between LeNet-5 or LeNet-5-HALF. Defaults to False.
             input_dim (List[int], optional): dimension of input images. Defaults to [32, 32, 1].
-            num_outputs (int, optional): number of output nodes. Defaults to 10.
+            num_classes (int, optional): number of output nodes. Defaults to 10.
+            `return_logits`: flag to choose between return logits or probability.
+                Defaults to `False`.
         """
         assert isinstance(half, bool), "'half' should be of type bool"
+        assert isinstance(return_logits, bool), '`return_logits` must be of type bool.'
+        
+        if half is False:
+            super().__init__(name=self._name, **kwargs)
+            divisor = 1
+        elif half is True:
+            super().__init__(name='LeNet-5-HALF_ReLU_MaxPool', **kwargs)
+            divisor = 2
         
         self.half = half
         self.input_dim = input_dim
-        self.num_outputs = num_outputs
-
-        if self.half == False:
-            super().__init__(name=self._name, *args, **kwargs)
-            divisor = 1
-        elif self.half == True:
-            super().__init__(name='LeNet-5-HALF_ReLU_MaxPool', *args, **kwargs)
-            divisor = 2
+        self.num_classes = num_classes
+        self.return_logits = return_logits
 
         self.C1      = keras.layers.Conv2D(filters=6//divisor, kernel_size=5, strides=1, activation='ReLU', padding='valid', name='C1')
         self.S2      = keras.layers.MaxPooling2D(pool_size=2, strides=2, padding='valid', name='S2')
@@ -100,7 +124,10 @@ class LeNet_5_ReLU_MaxPool(keras.Model):
         self.C5      = keras.layers.Conv2D(filters=120//divisor, kernel_size=5, strides=1, activation='ReLU', padding='valid', name='C5')
         self.flatten = keras.layers.Flatten(name='flatten')
         self.F6      = keras.layers.Dense(units=84//divisor, activation='ReLU', name='F6')
-        self.F7      = keras.layers.Dense(units=self.num_outputs, name='F7')
+        if self.return_logits is False:
+            self.pred = keras.layers.Dense(units=self.num_classes, name='pred', activation=tf.nn.softmax)
+        elif self.return_logits is True:
+            self.logits = keras.layers.Dense(units=self.num_classes, name='logits')
 
     def call(self, inputs):
         x = self.C1(inputs)
@@ -110,7 +137,10 @@ class LeNet_5_ReLU_MaxPool(keras.Model):
         x = self.C5(x)
         x = self.flatten(x)
         x = self.F6(x)
-        x = self.F7(x)
+        if self.return_logits is False:
+            x = self.pred(x)
+        elif self.return_logits is True:
+            x = self.logits(x)
         return x
 
     def build(self):
@@ -118,6 +148,15 @@ class LeNet_5_ReLU_MaxPool(keras.Model):
         inputs = keras.layers.Input(shape=self.input_dim)
         self.call(inputs)
 
+    def get_config(self):
+        config = super().get_config()
+        config.update({
+            'half': self.half,
+            'input_dim': self.input_dim,
+            'num_classes': self.num_classes,
+            'return_logits': self.return_logits
+        })
+        return config
 
 if __name__ == '__main__':
     # Change path
