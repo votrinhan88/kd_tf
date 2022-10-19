@@ -1,147 +1,207 @@
 if __name__ == '__main__':
     import os, sys
-    sys.path.append(os.path.realpath(os.path.dirname(os.path.dirname(os.path.dirname(sys.argv[0])))))
-    from models.GANs.traditional_gan import GenerativeAdversarialNetwork
+    repo_path = os.path.abspath(os.path.join(__file__, '../../..'))
+    assert os.path.basename(repo_path) == 'kd_tf', "Wrong parent folder. Please change to 'kd_tf'"
+    sys.path.append(repo_path)
+
+    from models.GANs.traditional_gan import Generator, Discriminator, GenerativeAdversarialNetwork
 else:
-    from .traditional_gan import GenerativeAdversarialNetwork
+    from .traditional_gan import Generator, Discriminator, GenerativeAdversarialNetwork
 
 from typing import List
 import tensorflow as tf
 keras = tf.keras
 
-def get_sequential_dcgan(latent_dim:int=128) -> keras.Sequential:
-    """DCGAN implementation from Keras.
-    https://keras.io/examples/generative/dcgan_overriding_train_step/
+class DC_Generator(Generator):
+    """Generator for DCGAN.
+    
+    Args:
+        `latent_dim`: Dimension of latent space. Defaults to `100`.
+        `image_dim`: Dimension of synthetic images. Defaults to `[28, 28, 1]`.
+        `base_dim`: Dimension of inputs being fed to the first convolutional layers
+            (feature map dimension and the number of filters). After each
+            convolutional layer, each dimension is doubled the and number of filters
+            is halved until `image_dim` is reached. Defaults to `[7, 7, 256]`.
+    
+    https://pytorch.org/tutorials/beginner/dcgan_faces_tutorial.html#generative-adversarial-networks
+    """
+    _name = 'DC_Generator'
+
+    def __init__(self,
+                 latent_dim:int=100,
+                 image_dim:List[int]=[28, 28, 1],
+                 base_dim:List[int]=[7, 7, 256],
+                 **kwargs):
+        """Initialize generator.
+        
+        Args:
+            `latent_dim`: Dimension of latent space. Defaults to `100`.
+            `image_dim`: Dimension of synthetic images. Defaults to `[28, 28, 1]`.
+            `base_dim`: Dimension of inputs being fed to the first convolutional layers
+                (feature map dimension and the number of filters). After each
+                convolutional layer, each dimension is doubled the and number of filters
+                is halved until `image_dim` is reached. Defaults to `[7, 7, 256]`.
+        """
+        # Parse architecture from input dimension
+        dim_ratio = [image_dim[axis]/base_dim[axis] for axis in range(len(image_dim)-1)]
+        for axis in range(len(dim_ratio)):
+            num_conv = tf.math.log(dim_ratio[axis])/tf.math.log(2.)
+            assert num_conv == int(num_conv), f'`base_dim` {base_dim[axis]} is not applicable with `image_dim` {image_dim[axis]} at axis {axis}.'
+            assert dim_ratio[axis] == dim_ratio[0], f'Ratio of `image_dim` and `base_dim` {image_dim[axis]}/{base_dim[axis]} at axis {axis} is mismatched with {image_dim[0]}/{base_dim[0]} at axis 0.'
+        num_conv = int(num_conv)
+
+        keras.Model.__init__(self, name=self._name, **kwargs)
+        self.latent_dim = latent_dim
+        self.image_dim = image_dim
+        self.base_dim = base_dim
+
+        self.dense_0 = keras.layers.Dense(units=tf.math.reduce_prod(base_dim), use_bias=False, name='dense_0')
+        self.reshape = keras.layers.Reshape(target_shape=base_dim, name='reshape')
+        self.bnorm_0 = keras.layers.BatchNormalization(name='bnorm_0')
+        self.relu_0  = keras.layers.ReLU(name='relu_0')
+
+        self.convt_block = [None for i in range(num_conv)]
+        for i in range(num_conv):
+            block_idx = i + 1
+            filters = self.base_dim[-1] // 2**(i+1)
+            if i < num_conv - 1:
+                self.convt_block[i] = keras.Sequential(
+                    layers=[
+                        keras.layers.Conv2DTranspose(filters=filters, kernel_size=(4, 4), strides=(2, 2), padding='same', use_bias=False, name=f'convt_{block_idx}'),
+                        keras.layers.BatchNormalization(name=f'bnorm_{block_idx}'),
+                        keras.layers.ReLU(name=f'relu_{block_idx}')
+                    ],
+                    name=f'convt_block_{block_idx}'
+                )
+            elif i == num_conv - 1:
+                # Last Conv2DTranspose: not use BatchNorm, replace relu with tanh
+                self.convt_block[i] = keras.Sequential(
+                    layers=[
+                        keras.layers.Conv2DTranspose(filters=self.image_dim[-1], kernel_size=(4, 4), strides=(2, 2), padding='same', use_bias=False, name=f'convt_{block_idx}'),
+                        keras.layers.Activation(activation=tf.nn.tanh, name=f'tanh_{block_idx}')
+                    ],
+                    name=f'convt_block_{block_idx}'
+                )        
+
+    def call(self, inputs, training:bool=False):
+        x = self.dense_0(inputs)
+        x = self.reshape(x)
+        x = self.bnorm_0(x, training=training)
+        x = self.relu_0(x)
+        for block in self.convt_block:
+            x = block(x, training=training)
+        return x
+
+    def get_config(self):
+        config = keras.Model.get_config(self)
+        config.update({
+            'latent_dim': self.latent_dim,
+            'image_dim': self.image_dim,
+            'base_dim': self.base_dim,
+        })
+        return config
+
+class DC_Discriminator(Discriminator):
+    """Discriminator for DCGAN. Ideally should have a symmetric architecture with the
+    generator's.
 
     Args:
-        latent_dim (int, optional): Dimension of latent space. Defaults to 128.
-
-    Returns:
-        keras.Sequential: DCGAN model
-    """
-    discriminator = keras.Sequential(
-        layers = [
-            keras.Input(shape=(64, 64, 3)),
-            keras.layers.Conv2D(64, kernel_size=4, strides=2, padding="same"),
-            keras.layers.LeakyReLU(alpha=0.2),
-            keras.layers.Conv2D(128, kernel_size=4, strides=2, padding="same"),
-            keras.layers.LeakyReLU(alpha=0.2),
-            keras.layers.Conv2D(128, kernel_size=4, strides=2, padding="same"),
-            keras.layers.LeakyReLU(alpha=0.2),
-            keras.layers.Flatten(),
-            keras.layers.Dropout(0.2),
-            keras.layers.Dense(1, activation="sigmoid"),
-        ],
-        name="discriminator")
-    generator = keras.Sequential(
-        layers=[
-            keras.Input(shape=(latent_dim,)),
-            keras.layers.Dense(8 * 8 * 128),
-            keras.layers.Reshape((8, 8, 128)),
-            keras.layers.Conv2DTranspose(128, kernel_size=4, strides=2, padding="same"),
-            keras.layers.LeakyReLU(alpha=0.2),
-            keras.layers.Conv2DTranspose(256, kernel_size=4, strides=2, padding="same"),
-            keras.layers.LeakyReLU(alpha=0.2),
-            keras.layers.Conv2DTranspose(512, kernel_size=4, strides=2, padding="same"),
-            keras.layers.LeakyReLU(alpha=0.2),
-            keras.layers.Conv2D(3, kernel_size=5, padding="same", activation="sigmoid"),
-        ],
-        name="generator")
-    dcgan = keras.Sequential(
-        layers=[keras.Input(shape=(latent_dim,)),generator, discriminator],
-        name='DCGAN')
-    return dcgan
-
-class DC_Discriminator(keras.Model):
-    """Discriminator for DCGAN.
+        `image_dim`: Dimension of image. Defaults to `[28, 28, 1]`.
+        `base_dim`: Dimension of outputs of the last convolutional layer, or
+            equivalently, dimension of inputs before being flattened and fed to the
+            very last dense (output) node. Ideally should be the same to the
+            generator's . Opposite to the generator, after each convolutional layer,
+            each dimension from `image_dim` is halved and the number of filters is
+            doubled until `base_dim` is reached.
+            Defaults to `[7, 7, 256]`.
+        `return_logits`: flag to choose between return logits or probability.
+            Defaults to `False`.
+    
+    https://pytorch.org/tutorials/beginner/dcgan_faces_tutorial.html#generative-adversarial-networks
     """    
     _name = 'DC_Discriminator'
 
     def __init__(self,
                  image_dim:List[int]=[28, 28, 1],
-                 *args, **kwargs):
-        """Initialize DC Discriminator.
-
+                 base_dim:List[int]=[7, 7, 256],
+                 return_logits:bool=False,
+                 **kwargs):
+        """Initialize discriminator.
+        
         Args:
-            image_dim (List[int], optional): Dimension of image. Defaults to [28, 28, 1].
-        """                 
-        super().__init__(self, name=self._name, *args, **kwargs)
+            `image_dim`: Dimension of image. Defaults to `[28, 28, 1]`.
+            `base_dim`: Dimension of outputs of the last convolutional layer, or
+                equivalently, dimension of inputs before being flattened and fed to the
+                very last dense (output) node. Ideally should be the same to the
+                generator's . Opposite to the generator, after each convolutional layer,
+                each dimension from `image_dim` is halved and the number of filters is
+                doubled until `base_dim` is reached.
+                Defaults to `[7, 7, 256]`.
+            `return_logits`: flag to choose between return logits or probability.
+                Defaults to `False`.
+        """
+        # Parse architecture from input dimension
+        dim_ratio = [image_dim[axis]/base_dim[axis] for axis in range(len(image_dim)-1)]
+        for axis in range(len(dim_ratio)):
+            num_conv = tf.math.log(dim_ratio[axis])/tf.math.log(2.)
+            assert num_conv == int(num_conv), f'`base_dim` {base_dim[axis]} is not applicable with `image_dim` {image_dim[axis]} at axis {axis}.'
+            assert dim_ratio[axis] == dim_ratio[0], f'Ratio of `image_dim` and `base_dim` {image_dim[axis]}/{base_dim[axis]} at axis {axis} is mismatched with {image_dim[0]}/{base_dim[0]} at axis 0.'
+        num_conv = int(num_conv)
+
+        keras.Model.__init__(self, name=self._name, **kwargs)
         self.image_dim = image_dim
+        self.base_dim = base_dim
+        self.return_logits = return_logits
 
-        self.conv2d_1     = keras.layers.Conv2D(64, kernel_size=4, strides=2, padding='same', name='conv2d_1')
-        self.leaky_relu_1 = keras.layers.LeakyReLU(alpha=0.2, name='leaky_relu_1')
-        self.conv2d_2     = keras.layers.Conv2D(128, kernel_size=4, strides=2, padding='same', name='conv2d_2')
-        self.leaky_relu_2 = keras.layers.LeakyReLU(alpha=0.2, name='leaky_relu_2')
-        self.flatten_2      = keras.layers.Flatten(name='flatten_2')
-        self.dropout      = keras.layers.Dropout(rate=0.2, name='dropout')
-        self.dense        = keras.layers.Dense(units=1, name='dense')
+        self.conv_block = [None for i in range(num_conv)]
+        for i in range(num_conv):
+            block_idx = i
+            filters = self.base_dim[-1] // 2**(num_conv-1-i)
+            if i == 0:
+                # First Conv2D: not use BatchNorm 
+                self.conv_block[i] = keras.Sequential(
+                    layers=[
+                        keras.layers.Conv2D(filters=filters, kernel_size=(4, 4), strides=(2, 2), padding='same', use_bias=False, name=f'conv_{block_idx}'),
+                        keras.layers.LeakyReLU(alpha=0.2, name=f'lrelu_{block_idx}')
+                    ],
+                    name=f'conv_block_{block_idx}'
+                )
+            elif i > 0:
+                self.conv_block[i] = keras.Sequential(
+                    layers=[
+                        keras.layers.Conv2D(filters=filters, kernel_size=(4, 4), strides=(2, 2), padding='same', use_bias=False, name=f'conv_{block_idx}'),
+                        keras.layers.BatchNormalization(name=f'bnorm_{block_idx}'),
+                        keras.layers.LeakyReLU(alpha=0.2, name=f'lrelu_{block_idx}')
+                    ],
+                    name=f'conv_block_{block_idx}'
+                )
 
-    def call(self, inputs):
-        x = self.conv2d_1(inputs)
-        x = self.leaky_relu_1(x)
-        x = self.conv2d_2(x)
-        x = self.leaky_relu_2(x)
-        x = self.flatten_2(x)
-        x = self.dropout(x)
-        x = self.dense(x)
+        self.flatten = keras.layers.Flatten(name='flatten')
+
+        if self.return_logits is False:
+            self.pred = keras.layers.Dense(units=1, use_bias=False, activation=tf.nn.sigmoid, name='pred')
+        elif self.return_logits is True:
+            self.logits = keras.layers.Dense(units=1, use_bias=False, name='logits')
+
+    def call(self, inputs, training:bool=False):
+        x = inputs
+        for block in self.conv_block:
+            x = block(x, training=training)
+        x = self.flatten(x)
+        if self.return_logits is False:
+            x = self.pred(x)
+        elif self.return_logits is True:
+            x = self.logits(x)
         return x
 
     def get_config(self):
-        return {
+        config = keras.Model.get_config(self)
+        config.update({
             'image_dim': self.image_dim,
-        }
-
-    @classmethod
-    def from_config(cls, config):
-        return cls(**config)
-
-class DC_Generator(keras.Model):
-    """Generator for DCGAN.
-    """    
-    def __init__(self,
-                 latent_dim:List[int]=[64],
-                 image_dim:List[int]=[28, 28, 1],
-                 *args, **kwargs):
-        """Initialize DC Generator.
-
-        Args:
-            latent_dim (List[int], optional): Dimension of latent space. Defaults to [64].
-            image_dim (List[int], optional): Dimension of image. Defaults to [28, 28, 1].
-        """                 
-        super().__init__(self, name='DC_generator', *args, **kwargs)
-        self.latent_dim = latent_dim
-        self.image_dim = image_dim
-
-        self.dense        = keras.layers.Dense(7 * 7 * 128)
-        self.reshape      = keras.layers.Reshape((7, 7, 128))
-        self.conv2dT_1    = keras.layers.Conv2DTranspose(128, kernel_size=4, strides=2, padding="same", name='conv2dT_1')
-        self.leaky_relu_1 = keras.layers.LeakyReLU(alpha=0.2, name='leaky_relu_1')
-        self.conv2dT_2    = keras.layers.Conv2DTranspose(256, kernel_size=4, strides=2, padding="same", name='conv2dT_2')
-        self.leaky_relu_2 = keras.layers.LeakyReLU(alpha=0.2, name='leaky_relu_2')
-        self.conv2d       = keras.layers.Conv2D(1, kernel_size=5, padding="same", name='conv2d')
-        self.tanh         = keras.layers.Activation(tf.nn.tanh, name='tanh')
-
-    def call(self, inputs):
-        x = self.dense(inputs)
-        x = self.reshape(x)
-        x = self.conv2dT_1(x)
-        x = self.leaky_relu_1(x)
-        x = self.conv2dT_2(x)
-        x = self.leaky_relu_2(x)
-        x = self.conv2d(x)
-        x = self.tanh(x)
-        x = (x + 1)/2
-        return x
-
-    def get_config(self):
-        return {
-            'latent_dim': self.latent_dim,
-            'image_dim': self.image_dim,
-        }
-
-    @classmethod
-    def from_config(cls, config):
-        return cls(**config)
+            'base_dim': self.base_dim,
+            'return_logits': self.return_logits
+        })
+        return config
 
 class DC_GenerativeAdversarialNetwork(GenerativeAdversarialNetwork):
     """Unsupervised Representation Learning with Deep Convolutional Generative
@@ -151,63 +211,114 @@ class DC_GenerativeAdversarialNetwork(GenerativeAdversarialNetwork):
     _name = 'DCGAN'
     discrimator_class = DC_Discriminator
     generator_class = DC_Generator
-
-    def __init__(self,
-                 generator:keras.Model=None,
-                 discriminator:keras.Model=None,
-                 latent_dim:List[int]=[128],
-                 image_dim:List[int]=[64, 64, 3],
-                 *args, **kwargs):
-        """Initialize DCGAN.
-
+    
+    def compile(self,
+                optimizer_disc:keras.optimizers.Optimizer=keras.optimizers.Adam(learning_rate=1e-4, beta_1=0.5),
+                optimizer_gen:keras.optimizers.Optimizer=keras.optimizers.Adam(learning_rate=1e-4, beta_1=0.5),
+                loss_fn:keras.losses.Loss=keras.losses.BinaryCrossentropy(),
+                **kwargs):
+        """Compile DCGAN.
+        
         Args:
-            generator (keras.Model, optional): Generator model. Defaults to None.
-            discriminator (keras.Model, optional): Discriminator model. Defaults to None.
-            latent_dim (List[int], optional): Dimension of latent space. Defaults to [128].
-            image_dim (List[int], optional): Dimension of image. Defaults to [64, 64, 3].
-        """                 
-        super().__init__(generator=generator,
-                         discriminator=discriminator,
-                         latent_dim=latent_dim,
-                         image_dim=image_dim,
-                         *args, **kwargs)
+            `optimizer_disc`: Optimizer for discriminator.
+                Defaults to `keras.optimizers.Adam(learning_rate=1e-4, beta_1=0.5)`.
+            `optimizer_gen`: Optimizer for generator.
+                Defaults to `keras.optimizers.Adam(learning_rate=1e-4, beta_1=0.5)`.
+            `loss_fn`: Loss function.
+                Defaults to `keras.losses.BinaryCrossentropy()`.
+        """                
+        super(DC_GenerativeAdversarialNetwork, self).compile(
+            optimizer_disc = optimizer_disc,
+            optimizer_gen = optimizer_gen,
+            loss_fn = loss_fn,
+            **kwargs)
 
 if __name__ == '__main__':
-    from models.GANs.utils import PlotSyntheticCallback
+    import tensorflow_datasets as tfds
+    from models.GANs.utils import MakeSyntheticGIFCallback
 
-    # Hyperparameters
-    ## Models
-    IMAGE_DIM = [28, 28, 1]
-    LATENT_DIM = [128]
-    ## Training
-    BATCH_SIZE = 32
-    NUM_EPOCHS = 20
-    LEARNING_RATE = 1e-4
-    BETA_1 = 0.5 # For Adam Optimizer
-    ## Plotting
-    NUM_SYNTHETIC = 10
-    
-    # Load data
-    (x_train, y_train), (x_test, y_test) = tf.keras.datasets.mnist.load_data()
-    x_train = tf.expand_dims(x_train.astype('float32')/255, axis = -1)
-    x_test = tf.expand_dims(x_test.astype('float32')/255, axis = -1)
+    # tf.config.run_functions_eagerly(True)
 
-    dcgan = get_sequential_dcgan()
-    dcgan.summary(expand_nested=True)
+    ds, ds_info = tfds.load('mnist', as_supervised=True, with_info=True)
+    def preprocess(x, y):
+        x = tf.cast(x, tf.float32)/255. # Scale to range [0, 1]
+        x = 2*(x - 0.5)                 # Scale to range [-1, 1]
+        return x, y
+    ds['train'] = (ds['train']
+        .map(preprocess)
+        .shuffle(ds_info.splits['train'].num_examples).batch(256, drop_remainder=True)
+        .prefetch(1))
+    ds['test'] = (ds['test']
+        .map(preprocess)
+        .batch(ds_info.splits['test'].num_examples, drop_remainder=True)
+        .prefetch(1))
 
-    dcgan = DC_GenerativeAdversarialNetwork(
-        latent_dim=LATENT_DIM,
-        image_dim=IMAGE_DIM)
-    dcgan.build()
-    dcgan.summary()
-    dcgan.compile(
-        disc_optimizer=keras.optimizers.Adam(learning_rate=LEARNING_RATE, beta_1=BETA_1),
-        gen_optimizer=keras.optimizers.Adam(learning_rate=LEARNING_RATE, beta_1=BETA_1),
-        loss_fn=keras.losses.BinaryCrossentropy(from_logits=True))
-    dcgan.fit(
-        x=x_train,
-        y=y_train,
-        batch_size=BATCH_SIZE,
-        epochs=NUM_EPOCHS,
+    def make_gen_disc_tf_mnist():
+        """Make generator and discriminator models as in Tensorflow tutorial.
+        
+        Returns:
+            Generator and Discriminator.
+
+        https://www.tensorflow.org/tutorials/generative/dcgan.
+        """
+        gen = tf.keras.Sequential(
+            layers=[
+                keras.layers.Dense(7*7*256, use_bias=False, input_shape=(100,)),
+                keras.layers.BatchNormalization(),
+                keras.layers.LeakyReLU(),
+                keras.layers.Reshape((7, 7, 256)),
+                keras.layers.Conv2DTranspose(128, (5, 5), strides=(1, 1), padding='same', use_bias=False),
+                keras.layers.BatchNormalization(),
+                keras.layers.LeakyReLU(),
+                keras.layers.Conv2DTranspose(64, (5, 5), strides=(2, 2), padding='same', use_bias=False),
+                keras.layers.BatchNormalization(),
+                keras.layers.LeakyReLU(),
+                keras.layers.Conv2DTranspose(1, (5, 5), strides=(2, 2), padding='same', use_bias=False, activation='tanh'),
+
+            ],
+            name='DC_Generator_tf'
+        )
+
+        disc = tf.keras.Sequential(
+            layers=[
+                keras.layers.Conv2D(64, (5, 5), strides=(2, 2), padding='same', input_shape=[28, 28, 1]),
+                keras.layers.LeakyReLU(),
+                keras.layers.Dropout(0.3),
+                keras.layers.Conv2D(128, (5, 5), strides=(2, 2), padding='same'),
+                keras.layers.LeakyReLU(),
+                keras.layers.Dropout(0.3),
+                keras.layers.Flatten(),
+                keras.layers.Dense(1),
+            ],
+            name='DC_Discriminator_tf'
+        )
+
+        return gen, disc
+
+    gen = DC_Generator(image_dim=[28, 28, 1], base_dim=[7, 7, 256])
+    gen.build()
+
+    disc = DC_Discriminator(image_dim=[28, 28, 1], base_dim=[7, 7, 256])
+    disc.build()
+
+    gan = DC_GenerativeAdversarialNetwork(generator=gen, discriminator=disc)
+    gan.build()
+    gan.summary(expand_nested=True) 
+    gan.compile()
+
+    csv_logger = keras.callbacks.CSVLogger(
+        f'./logs/{gan.name}_{gan.generator.name}_{gan.discriminator.name}.csv',
+        append=True
+    )
+    gif_maker = MakeSyntheticGIFCallback(
+        nrows=5, ncols=5,
+        postprocess_fn=lambda x:(x+1)/2
+    )
+    gan.evaluate(ds['test'])
+    gan.fit(
+        x=ds['train'],
+        epochs=50,
         verbose=1,
-        callbacks=[PlotSyntheticCallback(num_epochs=NUM_EPOCHS, num_synthetic=NUM_SYNTHETIC)])
+        callbacks=[csv_logger, gif_maker],
+        validation_data=ds['test'],
+    )
