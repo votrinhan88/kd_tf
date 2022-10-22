@@ -25,8 +25,7 @@ class LeNet_5(keras.Model):
             `num_classes`: number of output nodes. Defaults to `10`.
             `return_logits`: flag to choose between return logits or probability.
                 Defaults to `False`.
-        """                 
-
+        """
         assert isinstance(half, bool), '`half` must be of type bool'
         assert isinstance(return_logits, bool), '`return_logits` must be of type bool.'
         
@@ -50,7 +49,10 @@ class LeNet_5(keras.Model):
         self.flatten = keras.layers.Flatten(name='flatten')
         self.F6      = keras.layers.Dense(units=84//divisor, activation='tanh', name='F6')
         if self.return_logits is False:
-            self.pred = keras.layers.Dense(units=self.num_classes, name='pred', activation=tf.nn.softmax)
+            if self.num_classes == 1:
+                self.pred = keras.layers.Dense(units=self.num_classes, name='pred', activation=tf.nn.sigmoid)
+            elif self.num_classes > 1:
+                self.pred = keras.layers.Dense(units=self.num_classes, name='pred', activation=tf.nn.softmax)
         elif self.return_logits is True:
             self.logits = keras.layers.Dense(units=self.num_classes, name='logits')
 
@@ -83,8 +85,9 @@ class LeNet_5(keras.Model):
         })
         return config
 
-class LeNet_5_ReLU_MaxPool(keras.Model):
-    '''Alternative version of LeNet-5 with ReLU activation and MaxPooling layers.'''
+class LeNet_5_ReLU_MaxPool(LeNet_5):
+    """Alternative version of LeNet-5 with ReLU activation and MaxPooling layers.
+    """
     _name = 'LeNet-5_ReLU_MaxPool'
 
     def __init__(self,
@@ -92,24 +95,15 @@ class LeNet_5_ReLU_MaxPool(keras.Model):
                  input_dim:List[int]=[32, 32, 1],
                  num_classes:int=10,
                  return_logits:bool=False,
-                 **kwargs):        
-        """Initialize model.
-
-        Args:
-            half (bool, optional): flag to choose between LeNet-5 or LeNet-5-HALF. Defaults to False.
-            input_dim (List[int], optional): dimension of input images. Defaults to [32, 32, 1].
-            num_classes (int, optional): number of output nodes. Defaults to 10.
-            `return_logits`: flag to choose between return logits or probability.
-                Defaults to `False`.
-        """
-        assert isinstance(half, bool), "'half' should be of type bool"
+                 **kwargs):
+        assert isinstance(half, bool), '`half` should be of type bool'
         assert isinstance(return_logits, bool), '`return_logits` must be of type bool.'
         
         if half is False:
-            super().__init__(name=self._name, **kwargs)
+            keras.Model.__init__(self, name=self._name, **kwargs)
             divisor = 1
         elif half is True:
-            super().__init__(name='LeNet-5-HALF_ReLU_MaxPool', **kwargs)
+            keras.Model.__init__(self, name='LeNet-5-HALF_ReLU_MaxPool', **kwargs)
             divisor = 2
         
         self.half = half
@@ -125,38 +119,12 @@ class LeNet_5_ReLU_MaxPool(keras.Model):
         self.flatten = keras.layers.Flatten(name='flatten')
         self.F6      = keras.layers.Dense(units=84//divisor, activation='ReLU', name='F6')
         if self.return_logits is False:
-            self.pred = keras.layers.Dense(units=self.num_classes, name='pred', activation=tf.nn.softmax)
+            if self.num_classes == 1:
+                self.pred = keras.layers.Dense(units=self.num_classes, name='pred', activation=tf.nn.sigmoid)
+            elif self.num_classes > 1:
+                self.pred = keras.layers.Dense(units=self.num_classes, name='pred', activation=tf.nn.softmax)
         elif self.return_logits is True:
             self.logits = keras.layers.Dense(units=self.num_classes, name='logits')
-
-    def call(self, inputs):
-        x = self.C1(inputs)
-        x = self.S2(x)
-        x = self.C3(x)
-        x = self.S4(x)
-        x = self.C5(x)
-        x = self.flatten(x)
-        x = self.F6(x)
-        if self.return_logits is False:
-            x = self.pred(x)
-        elif self.return_logits is True:
-            x = self.logits(x)
-        return x
-
-    def build(self):
-        super().build(input_shape=[None]+self.input_dim)
-        inputs = keras.layers.Input(shape=self.input_dim)
-        self.call(inputs)
-
-    def get_config(self):
-        config = super().get_config()
-        config.update({
-            'half': self.half,
-            'input_dim': self.input_dim,
-            'num_classes': self.num_classes,
-            'return_logits': self.return_logits
-        })
-        return config
 
 if __name__ == '__main__':
     # Change path
@@ -167,47 +135,40 @@ if __name__ == '__main__':
 
     import tensorflow_datasets as tfds
 
-    # Hyperparameters
-    ## Model
-    IMAGE_DIM = [32, 32, 1]
-    ## Training
-    NUM_EPOCHS = 10
-    LEARNING_RATE = 1e-3
-    BATCH_SIZE_TRAIN = 256
-    BATCH_SIZE_TEST  = 1024
-
-    tf.config.run_functions_eagerly(True)
-
     # Load data
     ds = tfds.load('mnist', as_supervised=True)
     def preprocess(x, y):
         x = tf.cast(x, tf.float32)/255.
-        x = tf.image.resize(x, IMAGE_DIM[0:2])
+        x = tf.image.resize(x, size=[32, 32])
         x = (x - 0.1307)/0.3081
         return x, y
-    ds['train'] = ds['train'].map(preprocess).shuffle(60000).batch(BATCH_SIZE_TRAIN).prefetch(1)
-    ds['test'] = ds['test'].map(preprocess).batch(BATCH_SIZE_TEST).prefetch(1)
+    ds['train'] = ds['train'].map(preprocess).shuffle(60000).batch(256).prefetch(1)
+    ds['test'] = ds['test'].map(preprocess).batch(1024).prefetch(1)
 
-    net = LeNet_5(half=True)
+    net = LeNet_5_ReLU_MaxPool(half=True)
     net.build()
     net.summary()
     net.compile(
         metrics=['accuracy'], 
-        optimizer=keras.optimizers.Adam(learning_rate=LEARNING_RATE),
-        loss=keras.losses.SparseCategoricalCrossentropy(from_logits=True))
+        optimizer=keras.optimizers.Adam(learning_rate=1e-3),
+        loss=keras.losses.SparseCategoricalCrossentropy())
 
     best_callback = keras.callbacks.ModelCheckpoint(
         filepath=f'./logs/{net.name}_best.h5',
         monitor='val_accuracy',
-        verbose=1,
+        verbose=0,
         save_best_only=True,
         save_weights_only=True,
     )
+    csv_logger = keras.callbacks.CSVLogger(
+        f'./logs/{net.name}.csv',
+        append=True
+    )
+
     net.fit(
         ds['train'],
-        batch_size=BATCH_SIZE_TRAIN,
-        epochs=NUM_EPOCHS,
-        # callbacks=[best_callback],
+        epochs=10,
+        callbacks=[best_callback, csv_logger],
         shuffle=True,
         validation_data=ds['test']
     )
