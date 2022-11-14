@@ -1,52 +1,92 @@
-from typing import List, Union
-import tensorflow as tf
+# TODO:
+#   Save latent_dim and image_dim to distiller in init
 
+import warnings
+from typing import List, Union, Tuple
+import tensorflow as tf
 keras = tf.keras
 
-# import numpy as np
-# rng = np.random.default_rng(seed=17)
-# RAND_FEATURES = rng.normal(loc=0, scale=1, size=[512, 8, 8, 128]).astype('float32')
-# RAND_FEATURES = tf.convert_to_tensor(RAND_FEATURES)
-# print(RAND_FEATURES[0, 0, 0, -3:])
-# RAND_OUTPUTS = rng.normal(loc=0, scale=1, size=[512, 10]).astype('float32')
-# RAND_FEATURES = rng.normal(loc=0, scale=1, size=[512, 120]).astype('float32')
-# print(RAND_OUTPUTS[0, 0], RAND_OUTPUTS[-1, -1], RAND_FEATURES[0, 0], RAND_FEATURES[-1, -1])
+class PlaceholderDataGenerator(keras.utils.Sequence):
+    '''Produce placeholder batches of data to pass to `model.fit()` (when no training
+    data is required but need to bypass TensorFlow data handler).
+
+    Args:
+        `num_batches`: Number of batches. Defaults to `120`.
+        `batch_size`: Batch size. Defaults to `512`.
+
+    Theoretically should contained totally `num_batches*batch_size` examples.
+    However, since this generator only outputs placeholder data (`__getitem__()`),
+    we do not need to worry about batch size.
+    
+    Reference: https://www.tensorflow.org/api_docs/python/tf/keras/utils/Sequence
+    '''
+    def __init__(self,
+                 num_batches:int=120,
+                 batch_size:int=512,
+                 **kwargs):                 
+        """Initialize generator.
+        
+        Args:
+            `num_batches`: Number of batches. Defaults to `120`.
+            `batch_size`: Batch size. Defaults to `512`.
+        """        
+        super().__init__(**kwargs)
+        self.num_batches = num_batches
+        self.batch_size = batch_size
+
+    def __len__(self) -> int:
+        return self.num_batches
+
+    def __getitem__(self, index=None) -> Tuple[tf.Tensor, tf.Tensor]:
+        return tf.zeros(shape=[self.batch_size, 1]), tf.zeros(shape=[self.batch_size, 1])
 
 class DataFreeGenerator(keras.Model):
-    """DCGAN Generator model implemented in Data-Free Learning of Student
-    Networks - Chen et al. (2019), replicated with the same architecture.
+    """DCGAN Generator model implemented in Data-Free Learning of Student Networks - 
+    Chen et al. (2019), replicated with the same architecture.
 
     Original: Unsupervised representation learning with deep convolutional
     generative adversarial networks - Radford et al. (2015)
     DOI: 10.48550/arXiv.1511.06434
 
     Args:
-        latent_dim (List[int], optional): Dimension of latent space. Defaults to [100].
-        image_dim (List[int], optional): Dimension of output images. Defaults to [32, 32, 3].
+        `latent_dim`: Dimension of latent space. Defaults to `100`.
+        `image_dim`: Dimension of synthetic images. Defaults to `[32, 32, 3]`.
+        `dafl_batchnorm`: Flag to use same configuration for Batch Normalization
+            layers as in original DAFL paper. Defaults to `True`.
     """    
     _name = 'DataFreeGenerator'
 
     def __init__(self,
-                 latent_dim:List[int]=[100],
+                 latent_dim:int=100,
                  image_dim:List[int]=[32, 32, 3],
-
-                 *args, **kwargs):
+                 dafl_batchnorm:bool=True,
+                 **kwargs):
         """Initialize generator.
-
+        
         Args:
-            latent_dim (List[int], optional): Dimension of latent space. Defaults to [100].
-            image_dim (List[int], optional): Dimension of output images. Defaults to [32, 32, 3].
+            `latent_dim`: Dimension of latent space. Defaults to `100`.
+            `image_dim`: Dimension of synthetic images. Defaults to `[32, 32, 3]`.
+            `dafl_batchnorm`: Flag to use same configuration for Batch Normalization
+                layers as in original DAFL paper. Defaults to `True`.
         """
-        super().__init__(self, name=self._name, *args, **kwargs)
+        assert isinstance(dafl_batchnorm, bool), '`dafl_batchnorm` must be of type bool'
+        super().__init__(self, name=self._name, **kwargs)
         self.latent_dim = latent_dim
         self.image_dim = image_dim
+        self.dafl_batchnorm = dafl_batchnorm
 
-        self.init_dim = [self.image_dim[0]//4, self.image_dim[1]//4]
+        self._INIT_DIM = [self.image_dim[0]//4, self.image_dim[1]//4]
+        if self.dafl_batchnorm is True:
+            self._EPSILONS = [1e-5, 0.8, 0.8, 1e-5]
+            self._MOMENTUM = 0.9
+        elif self.dafl_batchnorm is False:
+            self._EPSILONS = [keras.layers.BatchNormalization().epsilon]*4 # 1e-3
+            self._MOMENTUM = keras.layers.BatchNormalization().momentum # 0.99
 
-        self.dense = keras.layers.Dense(units=self.init_dim[0] * self.init_dim[1] * 128)
-        self.reshape = keras.layers.Reshape(target_shape=(self.init_dim[0], self.init_dim[1], 128))
+        self.dense = keras.layers.Dense(units=self._INIT_DIM[0] * self._INIT_DIM[1] * 128)
+        self.reshape = keras.layers.Reshape(target_shape=(self._INIT_DIM[0], self._INIT_DIM[1], 128))
         self.conv_block_0 = keras.Sequential(
-            layers=[keras.layers.BatchNormalization(momentum=0.9, epsilon=1e-05)],
+            layers=[keras.layers.BatchNormalization(momentum=self._MOMENTUM, epsilon=self._EPSILONS[0])],
             name='conv_block_0'
         )
 
@@ -54,7 +94,7 @@ class DataFreeGenerator(keras.Model):
         self.conv_block_1 = keras.Sequential(
             layers=[
                 keras.layers.Conv2D(filters=128, kernel_size=3, strides=1, padding='same'),
-                keras.layers.BatchNormalization(momentum=0.9, epsilon=0.8),
+                keras.layers.BatchNormalization(momentum=self._MOMENTUM, epsilon=self._EPSILONS[1]),
                 keras.layers.LeakyReLU(alpha=0.2)
             ],
             name='conv_block_1'
@@ -64,54 +104,53 @@ class DataFreeGenerator(keras.Model):
         self.conv_block_2 = keras.Sequential(
             layers=[
                 keras.layers.Conv2D(filters=64, kernel_size=3, strides=1, padding='same'),
-                keras.layers.BatchNormalization(momentum=0.9, epsilon=0.8),
+                keras.layers.BatchNormalization(momentum=self._MOMENTUM, epsilon=self._EPSILONS[2]),
                 keras.layers.LeakyReLU(alpha=0.2),
                 keras.layers.Conv2D(filters=self.image_dim[2], kernel_size=3, strides=1, padding='same'),
                 keras.layers.Activation(tf.nn.tanh),
-                keras.layers.BatchNormalization(momentum=0.9, epsilon=1e-5)],
+                keras.layers.BatchNormalization(momentum=self._MOMENTUM, epsilon=self._EPSILONS[3], center=False, scale=False)],
             name='conv_block_2'
         )
         
-    def call(self, inputs):
+    def call(self, inputs, training:bool=False):
         x = self.dense(inputs)
         x = self.reshape(x)
-        x = self.conv_block_0(x)
+        x = self.conv_block_0(x, training=training)
         x = self.upsamp_1(x)
-        x = self.conv_block_1(x)
+        x = self.conv_block_1(x, training=training)
         x = self.upsamp_2(x)
-        x = self.conv_block_2(x)
-        # x = (x + 1)/2     # Authors do not normalize to [0, 1)
+        x = self.conv_block_2(x, training=training)
         return x
 
     def build(self):
-        super().build(input_shape=[None]+self.latent_dim)
-        inputs = keras.layers.Input(shape=self.latent_dim)
+        super().build(input_shape=[None, self.latent_dim])
+        inputs = keras.layers.Input(shape=[self.latent_dim])
         self.call(inputs)
 
     def get_config(self):
-        return {
+        config = super().get_config()
+        config.update({
             'latent_dim': self.latent_dim,
             'image_dim': self.image_dim,
-        }
+            'dafl_batchnorm': self.dafl_batchnorm
+        })
+        return config
 
-    @classmethod
-    def from_config(cls, config):
-        return cls(**config)
-
+# TODO: update `train_batch_exact`
 class DataFreeDistiller(keras.Model):
-    """Data-Free Learning of Student Networks - Chen et al. (2019)
-    DOI: 10.48550/arXiv.1904.01186
-
-    A knowledge distillation (KD) scheme performed without the training set
-    and architecture information of the teacher model, utilizing a generator
+    """A knowledge distillation scheme performed without the training set and
+    architecture information of the teacher model, utilizing a generator
     approximating the original dataset.
-
-    Implementation in PyTorch: https://github.com/autogyro/DAFL
-
+    
     Args:
-        teacher (keras.Model): Pre-trained teacher model
-        student (keras.Model): To-be-trained student model
-        generator (DataFreeGenerator): DCGAN generator proposed in study
+        `teacher`: Pre-trained teacher model.
+        `student`: To-be-trained student model.
+        `generator`: DCGAN generator proposed in study.
+    
+    Data-Free Learning of Student Networks - Chen et al. (2019)         
+    DOI: 10.48550/arXiv.1904.01186  
+    
+    Implementation in PyTorch: https://github.com/autogyro/DAFL
     """
     _name = 'DataFreeDistiller'
 
@@ -119,69 +158,128 @@ class DataFreeDistiller(keras.Model):
                  teacher:keras.Model,
                  student:keras.Model,
                  generator:DataFreeGenerator,
-                 *args, **kwargs):
+                 **kwargs):
         """Initialize distiller.
-
+        
         Args:
-            teacher (keras.Model): Pre-trained teacher model
-            student (keras.Model): To-be-trained student model
-            generator (DataFreeGenerator): DCGAN generator proposed in study
+            `teacher`: Pre-trained teacher model.
+            `student`: To-be-trained student model.
+            `generator`: DCGAN generator proposed in study.
         """                 
-        super().__init__(name=self._name, *args, **kwargs)
+        super().__init__(name=self._name, **kwargs)
         self.teacher = teacher
         self.student = student
         self.generator = generator
 
     def compile(self,
-                batch_size:int,
-                optimizer_student:keras.optimizers.Optimizer, # = keras.optimizers.Adam(learning_rate=2e-3, epsilon=1e-8),
-                optimizer_generator:keras.optimizers.Optimizer, # = keras.optimizers.Adam(learning_rate=2e-1, epsilon=1e-8),
-                onehot_loss_fn:keras.losses.Loss,
-                activation_loss_fn:keras.losses.Loss, # L1-norm
-                info_entropy_loss_fn:keras.losses.Loss, # information entropy loss
-                distillation_loss_fn:keras.losses.Loss,
-                student_loss_fn:keras.losses.Loss,
+                optimizer_student:keras.optimizers.Optimizer=keras.optimizers.Adam(learning_rate=2e-3, epsilon=1e-8),
+                optimizer_generator:keras.optimizers.Optimizer=keras.optimizers.Adam(learning_rate=0.2, epsilon=1e-8),
+                onehot_loss_fn:Union[bool, keras.losses.Loss]=True,
+                activation_loss_fn:Union[bool, keras.losses.Loss]=True,
+                info_entropy_loss_fn:Union[bool, keras.losses.Loss]=True,
+                distill_loss_fn:keras.losses.Loss=keras.losses.KLDivergence(),
+                student_loss_fn:keras.losses.Loss=keras.losses.SparseCategoricalCrossentropy(),
+                batch_size:int=512,
+                num_batches:int=120,
                 alpha:float=0.1,
                 beta:float=5,
-                temperature:float=1,
-                confidence:float=None):
+                # temperature:float=1,
+                confidence:float=None,
+                **kwargs):
         """Compile distiller.
-
+        
         Args:
-            batch_size (int): Batch size of synthetic images.
-            optimizer_student (keras.optimizers.Optimizer): Optimizer for student model.
-            optimizer_generator (keras.optimizers.Optimizer): Optimizer for generator model.
-            onehot_loss_fn (keras.losses.Loss): Loss function for one-hot loss, helps
-                generator produce distinctive images.
-            activation_loss_fn (keras.losses.Loss): Loss function for activation loss, helps
-                guide generator towards realistic synthesis of images.
-            info_entropy_loss_fn (keras.losses.Loss): Loss function for information entropy
-                loss, helps generator produce same amount of images for each class.
-            distillation_loss_fn (keras.losses.Loss): Loss function for distillation, helps
-                student match the teacher's prediction
-            student_loss_fn (keras.losses.Loss): Loss function for evaluating the student's
-                performance on the test set.
-            alpha (float, optional): Coefficient of activation loss. Defaults to 0.1.
-            beta (float, optional): Coefficient of information entropy loss. Defaults to 5.
-            temperature (float, optional): Temperature for label smoothing during
-                distillation. Defaults to 10.
-            confidence (float, optional): Confidence threshold for filtering out low-quality
-                synthetic images (evaluated by the teacher) before distillation. Defaults to
-                None.
-        """        
-        super().compile()
-        self.batch_size = batch_size
+            `optimizer_student`: Optimizer for student model.
+                Defaults to `keras.optimizers.Adam(learning_rate=2e-3, epsilon=1e-8)`.
+            `optimizer_generator`: .
+                Defaults to `keras.optimizers.Adam(learning_rate=0.2, epsilon=1e-8)`.
+            `onehot_loss_fn`: One-hot loss function, as in original paper.
+                Options:
+                    `True`: use default `keras.losses.SparseCategoricalCrossentropy()`
+                    `False`: toggle off
+                    Others: custom user-defined loss function.
+                Defaults to `True`.
+            `activation_loss_fn`: Activation loss function, as in original paper.
+                Options:
+                    `True`: Use default (see `_activation_loss_fn`)
+                    `False`: Toggle off
+                    Others: Custom user-defined loss function
+                Defaults to `True`.
+            `info_entropy_loss_fn`: Information entropy loss function, as in original
+            paper.
+                Options:
+                    `True`: Use default (see `_info_entropy_loss_fn`)
+                    `False`: Toggle off
+                    Others: Custom user-defined loss function
+                Defaults to `True`.
+            `distill_loss_fn`: Distillation loss function.
+                Defaults to `keras.losses.KLDivergence()`.
+            `student_loss_fn`: Loss function to evaluate the student's performance on
+            the validation set.
+                Defaults to `keras.losses.SparseCategoricalCrossentropy()`.
+            `batch_size`: Size of each synthetic batch. Defaults to `512`.
+            `num_batches`: Number of training batches each epoch. Defaults to `120`.
+            `alpha`: Coefficient of activation loss. Defaults to `0.1`.
+            `beta`: Coefficient of information entropy loss. Defaults to `5`.
+            `temperature`: Temperature for label smoothing during distillation.
+                Defaults to `1`.
+            `confidence`: Confidence threshold for filtering out low-quality synthetic
+            images (evaluated by the teacher) before distillation.
+                Options:
+                    `None`: do not apply
+                    `float` number in the range [0, 1]: apply with one threshold
+                Defaults to `None`.
+        """
+
+        if not isinstance(onehot_loss_fn, (keras.losses.Loss, bool)):
+            warnings.warn('`onehot_loss_fn` should be of type `keras.losses.Loss` or `bool`.')
+        if not isinstance(activation_loss_fn, (keras.losses.Loss, bool)):
+            warnings.warn('`activation_loss_fn` should be of type `keras.losses.Loss` or `bool`.')
+        if not isinstance(info_entropy_loss_fn, (keras.losses.Loss, bool)):
+            warnings.warn('`info_entropy_loss_fn` should be of type `keras.losses.Loss` or `bool`.')
+
+        super().compile(**kwargs)
         self.optimizer_student = optimizer_student
         self.optimizer_generator = optimizer_generator
         self.onehot_loss_fn = onehot_loss_fn
         self.activation_loss_fn = activation_loss_fn
-        self.info_entropy_loss_fn = info_entropy_loss_fn        
+        self.info_entropy_loss_fn = info_entropy_loss_fn
         self.student_loss_fn = student_loss_fn
-        self.distillation_loss_fn = distillation_loss_fn
+        self.distill_loss_fn = distill_loss_fn
+        self.batch_size = batch_size
+        self.num_batches = num_batches
         self.alpha = alpha
         self.beta = beta
-        self.temperature = temperature
+        # self.temperature = temperature
         self.confidence = confidence
+
+        # Config one-hot loss
+        if self.onehot_loss_fn is True:
+            self._onehot_loss_fn = keras.losses.SparseCategoricalCrossentropy()
+        elif self.onehot_loss_fn is False:
+            self._onehot_loss_fn = lambda *args, **kwargs:0
+        else:
+            self._onehot_loss_fn = self.onehot_loss_fn
+        # Config activation loss
+        if self.activation_loss_fn is True:
+            pass
+        elif self.activation_loss_fn is False:
+            self._activation_loss_fn = lambda *args, **kwargs:0
+        else:
+            self._activation_loss_fn = self.activation_loss_fn
+        # Config information entropy loss
+        if self.info_entropy_loss_fn is True:
+            pass
+        elif self.info_entropy_loss_fn is False:
+            self._info_entropy_loss_fn = lambda *args, **kwargs:0
+        else:
+            self._info_entropy_loss_fn = self.info_entropy_loss_fn
+
+        # Placeholder data generator
+        self.train_data = PlaceholderDataGenerator(
+            num_batches=self.num_batches,
+            batch_size=self.batch_size
+        )
 
         # Metrics
         self.loss_onehot_metric = keras.metrics.Mean(name='loss_onehot')
@@ -194,86 +292,63 @@ class DataFreeDistiller(keras.Model):
         self.loss_student_metric = keras.metrics.Mean(name='loss_student')
 
     @property
-    def train_metrics(self) -> List[keras.metrics.Metric]:
+    def train_metrics(self) -> List[keras.metrics.Metric]:        
         """Metrics monitoring training step.
-
+        
         Returns:
-            List[keras.metrics.Metric]: List of training metrics
+            List of training metrics.
         """        
         return [self.loss_onehot_metric,
                 self.loss_activation_metric,
                 self.loss_info_entropy_metric,
                 self.loss_generator_metric,
                 self.loss_distill_metric]
+    
     @property
     def val_metrics(self) -> List[keras.metrics.Metric]:
         """Metrics monitoring validation step.
-
+        
         Returns:
-            List[keras.metrics.Metric]: List of validation metrics
-        """        
+            List of validation metrics.
+        """
         return [self.accuracy_metric,
                 self.loss_student_metric]
 
     def train_step(self, data):
-        batch_size = self.batch_size
+        with tf.GradientTape(persistent=True, watch_accessed_variables=False) as tape:
+            # Specify trainable variables
+            tape.watch(self.generator.trainable_variables)
+            tape.watch(self.student.trainable_variables)
 
-        with tf.GradientTape(persistent=True) as tape:
             # Phase 1 - Training the Generator
-            '''
-            Randomly generate a batch of vector:
-            Generate the training samples: x ← G(z);
-            Employ the teacher network on the mini-batch: [yT , t, fT ] ← NT (x);
-            Calculate the loss function LT otal (Fcn.7):
-            Update weights in G using back-propagation;
-            '''
-            latent_noise = tf.random.normal(shape=[batch_size, self.generator.latent_dim[0]])
+            latent_noise = tf.random.normal(shape=[self.batch_size, self.generator.latent_dim])
             x_synthetic = self.generator(latent_noise, training=True)
-            teacher_logits, teacher_fmap = self.teacher(x_synthetic, training=False) # [512, 10], [512, 120]
+            teacher_prob, teacher_fmap = self.teacher(x_synthetic, training=False)
+            pseudo_label = tf.math.argmax(input=teacher_prob, axis=1)
 
-            # teacher_logits, teacher_fmap = tf.convert_to_tensor(RAND_OUTPUTS), tf.convert_to_tensor(RAND_FEATURES)
-
-            # Teacher prediction is used as pseudo-label
-            teacher_pred = tf.math.argmax(input=teacher_logits, axis=1)
-
-            loss_onehot = self.onehot_loss_fn(teacher_pred, teacher_logits)
-            loss_activation = -tf.math.reduce_mean(tf.norm(teacher_fmap, ord=1, axis=1)/120, axis=0)
-            
-            teacher_prob = tf.nn.softmax(logits=teacher_logits, axis=1)
-            distr_synthetic = tf.math.reduce_mean(teacher_prob, axis=0)
-            loss_info_entropy = tf.math.reduce_sum(distr_synthetic*tf.experimental.numpy.log10(distr_synthetic))
-            
+            loss_onehot = self._onehot_loss_fn(pseudo_label, teacher_prob)
+            loss_activation = self._activation_loss_fn(teacher_fmap)
+            loss_info_entropy = self._info_entropy_loss_fn(teacher_prob)
             loss_generator = loss_onehot + self.alpha*loss_activation + self.beta*loss_info_entropy
             
             # Phase 2: Training the student network.
-            '''
-            Randomly generate a batch of vector {zi}n i=1
-            Utlize the generator on the mini-batch: x ← G(z)
-            Employ the teacher network and the student network on the mini-batch simultaneously
-            yS ← NS(x), yT ← NT (x)
-            Calculate the knowledge distillation loss
-            Update weights in NS according to the gradient
-            '''
             # Detach gradient graph of generator and teacher
             x_synthetic = tf.stop_gradient(tf.identity(x_synthetic))
-            teacher_logits = tf.stop_gradient(tf.identity(teacher_logits))
+            teacher_prob = tf.stop_gradient(tf.identity(teacher_prob))
 
             if self.confidence is not None:
                 # Keep only images with high confidence to train student
-                teacher_prob = tf.stop_gradient(tf.identity(teacher_prob))
-                confident_idx = tf.squeeze(tf.where(tf.math.reduce_max(teacher_prob, axis=1) > self.confidence), axis=1)
-
+                confident_idx = tf.squeeze(tf.where(tf.math.reduce_max(teacher_prob, axis=1) >= self.confidence), axis=1)
                 x_synthetic = tf.gather(params=x_synthetic, indices=confident_idx)
-                teacher_logits = tf.gather(params=teacher_logits, indices=confident_idx)
+                teacher_prob = tf.gather(params=teacher_prob, indices=confident_idx)
 
-            student_logits = self.student(x_synthetic, training=True)
+            student_prob = self.student(x_synthetic, training=True)
             # Compute scaled distillation loss from https://arxiv.org/abs/1503.02531
             # The magnitudes of the gradients produced by the soft targets scale
             # as 1/T^2, multiply them by T^2 when using both hard and soft targets.
-            loss_distill = self.temperature**2 * self.distillation_loss_fn(
-                tf.nn.softmax(teacher_logits / self.temperature, axis=1),
-                tf.nn.softmax(student_logits / self.temperature, axis=1))
-        
+            # Current unapplicable: only T = 1
+            loss_distill = self.distill_loss_fn(teacher_prob, student_prob)
+
         ## Back-propagation of Generator
         generator_vars = self.generator.trainable_variables
         gradients = tape.gradient(loss_generator, generator_vars)
@@ -282,7 +357,6 @@ class DataFreeDistiller(keras.Model):
         student_vars = self.student.trainable_variables
         gradients = tape.gradient(loss_distill, student_vars)
         self.optimizer_student.apply_gradients(zip(gradients, student_vars))
-        del tape
 
         # Update the metrics, configured in 'compile()'
         self.loss_onehot_metric.update_state(loss_onehot)
@@ -293,9 +367,8 @@ class DataFreeDistiller(keras.Model):
         results = {m.name: m.result() for m in self.train_metrics}
         return results
 
-    def train_step_exact(self, data):
-        batch_size = self.batch_size
-
+    #TODO: Update train_batch_exact (and Multiple)
+    def train_batch_exact(self, data):
         with tf.GradientTape() as tape:
             # Phase 1 - Training the Generator
             '''
@@ -305,16 +378,16 @@ class DataFreeDistiller(keras.Model):
             Calculate the loss function LT otal (Fcn.7):
             Update weights in G using back-propagation;
             '''
-            latent_noise = tf.random.normal(shape=[batch_size, self.generator.latent_dim[0]])
+            latent_noise = tf.random.normal(shape=[self.batch_size, self.generator.latent_dim])
             x_synthetic = self.generator(latent_noise, training=True)
             teacher_logits, teacher_fmap = self.teacher(x_synthetic, training=False) # [512, 10], [512, 120]
 
             # Teacher prediction is used as pseudo-label
-            teacher_pred = tf.math.argmax(input=teacher_logits, axis=1)
+            pseudo_label = tf.math.argmax(input=teacher_logits, axis=1)
 
-            loss_onehot = self.onehot_loss_fn(teacher_pred, teacher_logits)
+            loss_onehot = self.onehot_loss_fn(pseudo_label, teacher_logits)
             
-            loss_activation = -tf.math.reduce_mean(tf.norm(teacher_fmap, ord=1, axis=1)/120, axis=0)
+            loss_activation = -tf.math.reduce_mean(tf.abs(teacher_fmap), axis=[0, 1])
             
             teacher_prob = tf.nn.softmax(logits=teacher_logits, axis=1)
             distr_synthetic = tf.math.reduce_mean(teacher_prob, axis=0)
@@ -336,7 +409,7 @@ class DataFreeDistiller(keras.Model):
         Calculate the knowledge distillation loss
         Update weights in NS according to the gradient
         '''
-        latent_noise = tf.random.normal(shape=[batch_size, self.generator.latent_dim[0]])
+        latent_noise = tf.random.normal(shape=[self.batch_size, self.generator.latent_dim])
         x_synthetic = self.generator(latent_noise, training=False)
         teacher_logits, _ = self.teacher(x_synthetic, training=False) # [512, 10], [512, 120]
         with tf.GradientTape() as tape:
@@ -366,11 +439,11 @@ class DataFreeDistiller(keras.Model):
         x, y = data
 
         # Compute predictions
-        student_logits = self.student(x, training=False)
-        student_pred = tf.math.argmax(input=student_logits, axis=1)
+        student_prob = self.student(x, training=False)
+        student_pred = tf.math.argmax(input=student_prob, axis=1)
 
         # Calculate the loss
-        loss_student = self.student_loss_fn(y, student_logits)
+        loss_student = self.student_loss_fn(y, student_prob)
         
         # Update the metrics, configured in 'compile()'
         self.accuracy_metric.update_state(y_true=y, y_pred=student_pred)
@@ -378,15 +451,46 @@ class DataFreeDistiller(keras.Model):
         results = {m.name: m.result() for m in self.val_metrics}
         return results
 
+    def fit(self, **kwargs):
+        super().fit(x=self.train_data, steps_per_epoch=self.num_batches, **kwargs)
+
+    @staticmethod
+    def _activation_loss_fn(inputs:tf.Tensor) -> tf.Tensor:        
+        """Activation loss function. Typical used with the teacher model's
+        flattened feature map.
+        
+        Args:
+            `inputs`: teacher model's flattened feature map. 
+        Returns:
+            Loss value.
+        """        
+        loss = -tf.math.reduce_mean(tf.abs(inputs), axis=[0, 1])
+        return loss
+
+    @staticmethod
+    def _info_entropy_loss_fn(inputs):
+        """Information entropy loss function. Typically used with the teacher model's
+        prediction (probability).
+        
+        Args:
+            `inputs`: teacher model's prediction (probability).
+        Returns:
+            Loss value.
+        """        
+        distr_synthetic = tf.math.reduce_mean(inputs, axis=0)
+        loss = tf.math.reduce_sum(distr_synthetic*tf.experimental.numpy.log10(distr_synthetic))
+        return loss
+
 class DataFreeDistiller_Multiple(keras.Model):
     """Re-implementation of DataFreeDistiller to work with multiple students using
-    different confidence thresholds. The students are initialized with the same
-    weights and trained with the same optimizer configurations.
+    different confidence thresholds and rebalancing conditions. The students are
+    initialized with the same weights and trained with the same optimizer
+    configurations.
 
     Args:
-        teacher (keras.Model): Pre-trained teacher model
-        student (keras.Model): To-be-trained student model
-        generator (DataFreeGenerator): DCGAN generator proposed in study
+        `teacher`:  Pre-trained teacher model.
+        `student`:  To-be-trained student model.
+        `generator`:  DCGAN generator proposed in study.
     """
     _name = 'DataFreeDistiller_Multiple'
 
@@ -394,197 +498,271 @@ class DataFreeDistiller_Multiple(keras.Model):
                  teacher:keras.Model,
                  student:keras.Model,
                  generator:DataFreeGenerator,
-                 *args, **kwargs):
+                 **kwargs):
         """Initialize distiller.
 
         Args:
-            teacher (keras.Model): Pre-trained teacher model
-            student (keras.Model): To-be-trained student model
-            generator (DataFreeGenerator): DCGAN generator proposed in study
-        """ 
-        super().__init__(name=self._name, *args, **kwargs)
+            `teacher`:  Pre-trained teacher model.
+            `student`:  To-be-trained student model.
+            `generator`:  DCGAN generator proposed in study.
+        """
+        super().__init__(name=self._name, **kwargs)
         self.teacher = teacher
         self.student = student
         self.generator = generator
 
     def compile(self,
-                batch_size:int,
-                optimizer_student:keras.optimizers.Optimizer, # = keras.optimizers.Adam(learning_rate=2e-3, epsilon=1e-8),
-                optimizer_generator:keras.optimizers.Optimizer, # = keras.optimizers.Adam(learning_rate=2e-1, epsilon=1e-8),
-                onehot_loss_fn:keras.losses.Loss,
-                activation_loss_fn:keras.losses.Loss, # L1-norm
-                info_entropy_loss_fn:keras.losses.Loss, # information entropy loss
-                distillation_loss_fn:keras.losses.Loss,
-                student_loss_fn:keras.losses.Loss,
+                optimizer_student:keras.optimizers.Optimizer=keras.optimizers.Adam(learning_rate=2e-3, epsilon=1e-8),
+                optimizer_generator:keras.optimizers.Optimizer=keras.optimizers.Adam(learning_rate=0.2, epsilon=1e-8),
+                onehot_loss_fn:Union[bool, keras.losses.Loss]=True,
+                activation_loss_fn:Union[bool, keras.losses.Loss]=True,
+                info_entropy_loss_fn:Union[bool, keras.losses.Loss]=True,
+                distill_loss_fn:keras.losses.Loss=keras.losses.KLDivergence(),
+                student_loss_fn:keras.losses.Loss=keras.losses.SparseCategoricalCrossentropy(),
+                batch_size:int=512,
+                num_batches:int=120,
                 alpha:float=0.1,
                 beta:float=5,
-                temperature:float=1,
-                confidence:Union[List[Union[float, None]], float, None]=None):
+                # temperature:float=1,
+                confidence:Union[List[Union[float, None]], float, None]=None,
+                rebalance:Union[List[bool], bool]=False,
+                **kwargs):
         """Compile distiller.
-
+        
         Args:
-            batch_size (int): Batch size of synthetic images.
-            optimizer_student (keras.optimizers.Optimizer): Optimizer for student model.
-            optimizer_generator (keras.optimizers.Optimizer): Optimizer for generator model.
-            onehot_loss_fn (keras.losses.Loss): Loss function for one-hot loss, helps
-                generator produce distinctive images.
-            activation_loss_fn (keras.losses.Loss): Loss function for activation loss, helps
-                guide generator towards realistic synthesis of images.
-            info_entropy_loss_fn (keras.losses.Loss): Loss function for information entropy
-                loss, helps generator produce same amount of images for each class.
-            distillation_loss_fn (keras.losses.Loss): Loss function for distillation, helps
-                student match the teacher's prediction
-            student_loss_fn (keras.losses.Loss): Loss function for evaluating the student's
-                performance on the test set.
-            alpha (float, optional): Coefficient of activation loss. Defaults to 0.1.
-            beta (float, optional): Coefficient of information entropy loss. Defaults to 5.
-            temperature (float, optional): Temperature for label smoothing during
-                distillation. Defaults to 10.
-            confidence (Union[List[Union[float, None]], float, None], optional): Confidence
-                threshold for filtering out low-quality synthetic images (evaluated by the
-                teacher) before distillation. Defaults to None.
-        """        
-        super().compile()
-        self.batch_size = batch_size
+            `optimizer_student`: Optimizer for student model(s).
+                Defaults to `keras.optimizers.Adam(learning_rate=2e-3, epsilon=1e-8)`.
+            `optimizer_generator`: Optimizer for generator model.
+                Defaults to `keras.optimizers.Adam(learning_rate=0.2, epsilon=1e-8)`.
+            `onehot_loss_fn`:  One-hot loss function, as in original paper.
+                Options:
+                    `True`: use default `keras.losses.SparseCategoricalCrossentropy()`
+                    `False`: toggle off
+                    Others: custom user-defined loss function.
+                Defaults to `True`.
+            `activation_loss_fn`: Activation loss function, as in original paper.
+                Options:
+                    `True`: Use default (see `_activation_loss_fn`)
+                    `False`: Toggle off
+                    Others: Custom user-defined loss function
+                Defaults to `True`.
+            `info_entropy_loss_fn`: Information entropy loss function, as in original
+            paper.
+                Options:
+                    `True`: Use default (see `_info_entropy_loss_fn`)
+                    `False`: Toggle off
+                    Others: Custom user-defined loss function
+                Defaults to `True`.
+            `distill_loss_fn`: Distillation loss function.
+                Defaults to `keras.losses.KLDivergence()`.
+            `student_loss_fn`: Loss function to evaluate the student's performance on
+            the validation set.
+                Defaults to `keras.losses.SparseCategoricalCrossentropy()`.
+            `batch_size`: Size of each synthetic batch. Defaults to `512`.
+            `num_batches`: Number of training batches each epoch. Defaults to `120`.
+            `alpha`: Coefficient of activation loss. Defaults to `0.1`.
+            `beta`: Coefficient of information entropy loss. Defaults to `5`.
+            `temperature`: Temperature for label smoothing during distillation.
+                Defaults to `1`.
+            `confidence`: Confidence threshold for filtering out low-quality synthetic
+            images (evaluated by the teacher) before distillation.
+                Options:
+                    `None`: do not apply
+                    `float` number in the range [0, 1]: apply with one threshold
+                    List of `None` and/or `float` numbers: apply all simultaneously
+                Defaults to `None`.
+            `rebalance`: Flag(s) to trigger rebalancing (dropping examples in a
+            synthetic batch so every classes has the same number of examples with the
+            least populated class).
+                Options:
+                    `False`: do not apply
+                    `True`: do apply
+                    `[False, True]`: apply both cases simultaneously
+                Defaults to `False`.
+        """
+        if not isinstance(onehot_loss_fn, (keras.losses.Loss, bool)):
+            warnings.warn('`onehot_loss_fn` should be of type `keras.losses.Loss` or `bool`.')
+        if not isinstance(activation_loss_fn, (keras.losses.Loss, bool)):
+            warnings.warn('`activation_loss_fn` should be of type `keras.losses.Loss` or `bool`.')
+        if not isinstance(info_entropy_loss_fn, (keras.losses.Loss, bool)):
+            warnings.warn('`info_entropy_loss_fn` should be of type `keras.losses.Loss` or `bool`.')
+
+        super().compile(**kwargs)
         self.optimizer_student = optimizer_student
         self.optimizer_generator = optimizer_generator
         self.onehot_loss_fn = onehot_loss_fn
         self.activation_loss_fn = activation_loss_fn
         self.info_entropy_loss_fn = info_entropy_loss_fn        
         self.student_loss_fn = student_loss_fn
-        self.distillation_loss_fn = distillation_loss_fn
+        self.distill_loss_fn = distill_loss_fn
+        self.batch_size = batch_size
+        self.num_batches = num_batches
         self.alpha = alpha
         self.beta = beta
-        self.temperature = temperature
-        
-        # Handling multiple values of confidence with multiple students & their optimizers:
+        # self.temperature = temperature
+
+        # Handling multiple values of confidence and rebalance with multiple students & their optimizers:
         if isinstance(confidence, list):
             self.confidence = confidence
         elif not isinstance(confidence, list):
             self.confidence = [confidence]
-        self.num_students = len(self.confidence)
+        if isinstance(rebalance, list):
+            self.rebalance = rebalance
+        elif not isinstance(rebalance, list):
+            self.rebalance = [rebalance]
 
+        # Config one-hot loss
+        if self.onehot_loss_fn is True:
+            self._onehot_loss_fn = keras.losses.SparseCategoricalCrossentropy()
+        elif self.onehot_loss_fn is False:
+            self._onehot_loss_fn = lambda *args, **kwargs:0
+        else:
+            self._onehot_loss_fn = self.onehot_loss_fn
+        # Config activation loss
+        if self.activation_loss_fn is True:
+            pass
+        elif self.activation_loss_fn is False:
+            self._activation_loss_fn = lambda *args, **kwargs:0
+        else:
+            self._activation_loss_fn = self.activation_loss_fn
+        # Config information entropy loss
+        if self.info_entropy_loss_fn is True:
+            pass
+        elif self.info_entropy_loss_fn is False:
+            self._info_entropy_loss_fn = lambda *args, **kwargs:0
+        else:
+            self._info_entropy_loss_fn = self.info_entropy_loss_fn
+
+        # Placeholder data generator
+        self.train_data = PlaceholderDataGenerator(
+            num_batches=self.num_batches,
+            batch_size=self.batch_size
+        )
+
+        # Clone students & optimizers with same parameters
         self.student.save('./logs/student_init')
-        self.student:List[self.student.__class__] = [
-            keras.models.load_model('./logs/student_init') for i in range(self.num_students)
-        ]
+        self.students:List[self.student.__class__] = []
+        for confidence in self.confidence:
+            for rebalance in self.rebalance:
+                student:self.student.__class__ = keras.models.load_model('./logs/student_init')
+                student.confidence = confidence
+                student.rebalance = rebalance
+                if student.rebalance is True:
+                    student.name_suffix = f'{confidence}_R'
+                elif student.rebalance is False:
+                    student.name_suffix = f'{confidence}'
+
+                self.students.append(student)
+        
         optimizer_student_config = self.optimizer_student.get_config()
-        self.optimizer_student:List[self.optimizer_student.__class__] = [
-            self.optimizer_student.__class__(**optimizer_student_config) for i in range(self.num_students)
-        ]
+        self.optimizers_student = {
+            student.name_suffix:self.optimizer_student.__class__(**optimizer_student_config) for student in self.students
+        }
 
         # Metrics
         self.loss_onehot_metric = keras.metrics.Mean(name='loss_onehot')
         self.loss_activation_metric = keras.metrics.Mean(name='loss_activation')
         self.loss_info_entropy_metric = keras.metrics.Mean(name='loss_info_entropy')
         self.loss_generator_metric = keras.metrics.Mean(name='loss_generator')
-        self.loss_distill_metric = [keras.metrics.Mean(name=f'loss_distill_{c}') for c in self.confidence]
 
-        self.loss_ie_filtered_metric = [keras.metrics.Mean(name=f'loss_ie_filtered_{c}') for c in self.confidence]
-        self.accuracy_metric = [keras.metrics.Accuracy(name=f'accuracy_{c}') for c in self.confidence]
-        self.loss_student_metric = [keras.metrics.Mean(name=f'loss_student_{c}') for c in self.confidence]
+        self.loss_distill_metric = {
+            student.name_suffix:keras.metrics.Mean(name=f'loss_distill_{student.name_suffix}') for student in self.students
+        }
+        self.loss_ie_filtered_metric = {
+            student.name_suffix:keras.metrics.Mean(name=f'loss_ie_filtered_{student.name_suffix}') for student in self.students
+        }
+        self.accuracy_metric = {
+            student.name_suffix:keras.metrics.Accuracy(name=f'accuracy_{student.name_suffix}') for student in self.students
+        }
+        self.loss_student_metric = {
+            student.name_suffix:keras.metrics.Mean(name=f'loss_student_{student.name_suffix}') for student in self.students
+        }
 
     @property
     def train_metrics(self) -> List[keras.metrics.Metric]:
         """Metrics monitoring training step.
-
+        
         Returns:
-            List[keras.metrics.Metric]: List of training metrics
-        """        
+            List of training metrics.
+        """
         return [self.loss_onehot_metric,
                 self.loss_activation_metric,
                 self.loss_info_entropy_metric,
                 self.loss_generator_metric,
-                *self.loss_ie_filtered_metric,
-                *self.loss_distill_metric]
+                *self.loss_ie_filtered_metric.values(),
+                *self.loss_distill_metric.values()]
+    
     @property
     def val_metrics(self) -> List[keras.metrics.Metric]:
         """Metrics monitoring validation step.
-
+        
         Returns:
-            List[keras.metrics.Metric]: List of validation metrics
-        """        
-        return [*self.accuracy_metric,
-                *self.loss_student_metric]
+            List of validation metrics.
+        """
+        return [*self.accuracy_metric.values(),
+                *self.loss_student_metric.values()]
 
     def train_step(self, data):
-        batch_size = self.batch_size
-
         with tf.GradientTape(persistent=True) as tape:
+            # Specify trainable variables
+            tape.watch(self.generator.trainable_variables)
+            for student in self.students:
+                tape.watch(student.trainable_variables)
+
             # Phase 1 - Training the Generator
-            '''
-            Randomly generate a batch of vector:
-            Generate the training samples: x ← G(z);
-            Employ the teacher network on the mini-batch: [yT , t, fT ] ← NT (x);
-            Calculate the loss function LT otal (Fcn.7):
-            Update weights in G using back-propagation;
-            '''
-            latent_noise = tf.random.normal(shape=[batch_size, self.generator.latent_dim[0]])
+            latent_noise = tf.random.normal(shape=[self.batch_size, self.generator.latent_dim])
             x_synthetic = self.generator(latent_noise, training=True)
-            teacher_logits, teacher_fmap = self.teacher(x_synthetic, training=False) # [512, 10], [512, 120]
+            teacher_prob, teacher_fmap = self.teacher(x_synthetic, training=False) # [512, 10], [512, 120]
+            pseudo_label = tf.math.argmax(input=teacher_prob, axis=1)
 
-            # teacher_logits, teacher_fmap = tf.convert_to_tensor(RAND_OUTPUTS), tf.convert_to_tensor(RAND_FEATURES)
-
-            # Teacher prediction is used as pseudo-label
-            teacher_pred = tf.math.argmax(input=teacher_logits, axis=1)
-
-            loss_onehot = self.onehot_loss_fn(teacher_pred, teacher_logits)
-            loss_activation = -tf.math.reduce_mean(tf.norm(teacher_fmap, ord=1, axis=1)/120, axis=0)
-            
-            teacher_prob = tf.nn.softmax(logits=teacher_logits, axis=1)
-            distr_synthetic = tf.math.reduce_mean(teacher_prob, axis=0)
-            loss_info_entropy = tf.math.reduce_sum(distr_synthetic*tf.experimental.numpy.log10(distr_synthetic))
-            
+            loss_onehot = self._onehot_loss_fn(pseudo_label, teacher_prob)
+            loss_activation = self._activation_loss_fn(teacher_fmap)
+            loss_info_entropy = self._info_entropy_loss_fn(teacher_prob)
             loss_generator = loss_onehot + self.alpha*loss_activation + self.beta*loss_info_entropy
             
             # Phase 2: Training the student network.
-            '''
-            Randomly generate a batch of vector {zi}n i=1
-            Utlize the generator on the mini-batch: x ← G(z)
-            Employ the teacher network and the student network on the mini-batch simultaneously
-            yS ← NS(x), yT ← NT (x)
-            Calculate the knowledge distillation loss
-            Update weights in NS according to the gradient
-            '''
-            loss_distill = [None for i in range(self.num_students)]
-            loss_ie_filtered = [None for i in range(self.num_students)]
-            for student_idx, student in enumerate(self.student):
-                confidence = self.confidence[student_idx]
+            loss_distill = {}
+            loss_ie_filtered = {}
+            for student in self.students:
                 # Detach gradient graph of generator and teacher
-                x_synthetic_filtered = tf.stop_gradient(tf.identity(x_synthetic))
-                teacher_logits_filtered = tf.stop_gradient(tf.identity(teacher_logits))
-                teacher_prob_filtered = tf.stop_gradient(tf.identity(teacher_prob))
+                # Suffix "_f" for "filtered"
+                x_synthetic_f  = tf.stop_gradient(tf.identity(x_synthetic))
+                teacher_prob_f = tf.stop_gradient(tf.identity(teacher_prob))
+                pseudo_label_f = tf.stop_gradient(tf.identity(pseudo_label))
 
-                if confidence is not None:
-                    # Keep only images with high confidence to train student
-                    confident_idx = tf.squeeze(tf.where(tf.math.reduce_max(teacher_prob_filtered, axis=1) > confidence), axis=1)
-                    x_synthetic_filtered = tf.gather(params=x_synthetic_filtered, indices=confident_idx)
-                    teacher_logits_filtered = tf.gather(params=teacher_logits_filtered, indices=confident_idx)
-                    teacher_prob_filtered = tf.gather(params=teacher_prob_filtered, indices=confident_idx)
+                # Filter by confidence
+                if student.confidence is not None:
+                    confident_idx = tf.squeeze(
+                        tf.where(tf.math.reduce_max(teacher_prob_f, axis=1) >= student.confidence),
+                        axis=1
+                    )
+                    x_synthetic_f  = tf.gather(params=x_synthetic_f, indices=confident_idx)
+                    teacher_prob_f = tf.gather(params=teacher_prob_f, indices=confident_idx)
+                    pseudo_label_f = tf.gather(params=pseudo_label_f, indices=confident_idx)
 
-                student_logits = student(x_synthetic_filtered, training=True)
+                # Rebalancing to the least frequent class:
+                if student.rebalance is True:
+                    rebalance_idx = self.find_rebalance_idx(pred_tensor=pseudo_label_f, num_classes=10)
+                    x_synthetic_f  = tf.gather(params=x_synthetic_f, indices=rebalance_idx)
+                    teacher_prob_f = tf.gather(params=teacher_prob_f, indices=rebalance_idx)
+                    pseudo_label_f = tf.gather(params=pseudo_label_f, indices=rebalance_idx)
+                    
+                student_prob = student(x_synthetic_f, training=True)
                 # Compute scaled distillation loss from https://arxiv.org/abs/1503.02531
                 # The magnitudes of the gradients produced by the soft targets scale
                 # as 1/T^2, multiply them by T^2 when using both hard and soft targets.
-                loss_distill[student_idx] = self.temperature**2 * self.distillation_loss_fn(
-                    tf.nn.softmax(teacher_logits_filtered / self.temperature, axis=1),
-                    tf.nn.softmax(student_logits          / self.temperature, axis=1))
-
-                distr_synthetic_filtered = tf.math.reduce_mean(teacher_prob_filtered, axis=0)
-                loss_ie_filtered[student_idx] = tf.math.reduce_sum(
-                    distr_synthetic_filtered*tf.experimental.numpy.log10(distr_synthetic_filtered)
-                )
+                loss_distill[student.name_suffix] = self.distill_loss_fn(teacher_prob_f, student_prob)
+                loss_ie_filtered[student.name_suffix] = self._info_entropy_loss_fn(teacher_prob_f)
         
         ## Back-propagation of Generator
         generator_vars = self.generator.trainable_variables
         gradients = tape.gradient(loss_generator, generator_vars)
         self.optimizer_generator.apply_gradients(zip(gradients, generator_vars))
         # Back-propagation of Students
-        for student_idx, student in enumerate(self.student):
+        for student in self.students:
             student_vars = student.trainable_variables
-            gradients = tape.gradient(loss_distill[student_idx], student_vars)
-            self.optimizer_student[student_idx].apply_gradients(zip(gradients, student_vars))
-
+            gradients = tape.gradient(loss_distill[student.name_suffix], student_vars)
+            self.optimizers_student[student.name_suffix].apply_gradients(zip(gradients, student_vars))
         del tape
 
         # Update the metrics, configured in 'compile()'
@@ -592,10 +770,10 @@ class DataFreeDistiller_Multiple(keras.Model):
         self.loss_activation_metric.update_state(loss_activation)
         self.loss_info_entropy_metric.update_state(loss_info_entropy)
         self.loss_generator_metric.update_state(loss_generator)
-        for student_idx in range(self.num_students):
-            self.loss_distill_metric[student_idx].update_state(loss_distill[student_idx])
-            self.loss_ie_filtered_metric[student_idx].update_state(loss_ie_filtered[student_idx])
-
+        for student in self.students:
+            self.loss_distill_metric[student.name_suffix].update_state(loss_distill[student.name_suffix])
+            self.loss_ie_filtered_metric[student.name_suffix].update_state(loss_ie_filtered[student.name_suffix])
+        
         results = {m.name: m.result() for m in self.train_metrics}
         return results
 
@@ -603,24 +781,65 @@ class DataFreeDistiller_Multiple(keras.Model):
         # Unpack the data
         x, y = data
 
-        student_pred = [None for i in range(self.num_students)]
-        loss_student = [None for i in range(self.num_students)]
-        for student_idx, student in enumerate(self.student):
-            # Compute predictions
-            student_logits = student(x, training=False)
-            student_pred[student_idx] = tf.math.argmax(input=student_logits, axis=1)
-
-            # Calculate the loss
-            loss_student[student_idx] = self.student_loss_fn(y, student_logits)
-        
-        # Update the metrics, configured in 'compile()'
-        for student_idx in range(self.num_students):
-            self.accuracy_metric[student_idx].update_state(y_true=y, y_pred=student_pred[student_idx])
-            self.loss_student_metric[student_idx].update_state(loss_student[student_idx])
+        for student in self.students:
+            # Compute predictions and log accuracy
+            student_prob = student(x, training=False)
+            self.accuracy_metric[student.name_suffix].update_state(
+                y_true=y,
+                y_pred=tf.math.argmax(input=student_prob, axis=1)
+            )
+            # Compute and log loss
+            self.loss_student_metric[student.name_suffix].update_state(
+                values=self.student_loss_fn(y, student_prob)
+            )
         
         results = {m.name: m.result() for m in self.val_metrics}
         return results
 
+    def fit(self, **kwargs):
+        super().fit(x=self.train_data, steps_per_epoch=self.num_batches, **kwargs)
+
+    @staticmethod
+    def find_rebalance_idx(pred_tensor:tf.Tensor, num_classes:int) -> tf.Tensor:        
+        hist = tf.histogram_fixed_width(
+            tf.cast(pred_tensor, dtype=tf.float32),
+            value_range = [-0.5, num_classes-0.5], nbins=num_classes)
+        num_least_class = tf.math.reduce_min(hist)
+
+        shuffled_rebalanced_idx = [None for i in range(num_classes)]
+        for label in range(num_classes):
+            idx_by_label = tf.squeeze(tf.where(pred_tensor == label), axis=1)
+            shuffled_rebalanced_idx[label] = idx_by_label[0:num_least_class]
+        shuffled_rebalanced_idx = tf.concat(shuffled_rebalanced_idx, axis=0)
+
+        return shuffled_rebalanced_idx
+
+    @staticmethod
+    def _activation_loss_fn(inputs:tf.Tensor) -> tf.Tensor:        
+        """Activation loss function. Typical used with the teacher model's
+        flattened feature map.
+        
+        Args:
+            `inputs`: teacher model's flattened feature map. 
+        Returns:
+            Loss value.
+        """        
+        loss = -tf.math.reduce_mean(tf.abs(inputs), axis=[0, 1])
+        return loss
+
+    @staticmethod
+    def _info_entropy_loss_fn(inputs):
+        """Information entropy loss function. Typically used with the teacher model's
+        prediction (probability).
+        
+        Args:
+            `inputs`: teacher model's prediction (probability).
+        Returns:
+            Loss value.
+        """        
+        distr_synthetic = tf.math.reduce_mean(inputs, axis=0)
+        loss = tf.math.reduce_sum(distr_synthetic*tf.experimental.numpy.log10(distr_synthetic))
+        return loss
 
 if __name__ == '__main__':
     # Change path
@@ -630,14 +849,15 @@ if __name__ == '__main__':
     sys.path.append(repo_path)
 
     import tensorflow_datasets as tfds
-    from models.LeNet_5 import LeNet_5
-    from models.distillers.utils import CSVLogger_custom, ThresholdStopping, ValidationFreqPrinter
+    from models.classifiers.LeNet_5 import LeNet_5
+    from models.distillers.utils import CSVLogger_custom, ThresholdStopping, ValidationFreqPrinter, add_fmap_output
 
-    tf.config.run_functions_eagerly(True)
+    # tf.config.run_functions_eagerly(True)
+    # tf.data.experimental.enable_debug_mode()
 
     # Hyperparameters
     ## Model
-    LATENT_DIM = [100]
+    LATENT_DIM = 100
     IMAGE_DIM = [32, 32, 1]
     ALPHA = 0.1
     BETA = 5
@@ -647,23 +867,6 @@ if __name__ == '__main__':
     LEARNING_RATE_GENERATOR = 0.2
     BATCH_SIZE = 512
     NUM_EPOCHS = 200
-
-    def add_fmap_output(model:keras.Model, fmap_layer:str) -> keras.Model:
-        """Extract a model's feature map and add to its output.
-
-        Args:
-            model (keras.Model): host model of feature map
-            fmap_layer (str): name of feature map layer
-
-        Returns:
-            keras.Model: host model with an additional feature map output
-        """        
-        model.build()
-        model = keras.Model(
-            inputs=model.layers[0].input,
-            outputs=[model.layers[-1].output, model.get_layer(fmap_layer).output],
-            name=model.name)
-        return model
 
     # Experiment 4.1: Classification result on the MNIST dataset
     #                                       LeNet-5        HintonNets
@@ -702,110 +905,71 @@ if __name__ == '__main__':
     generator = DataFreeGenerator(latent_dim=[100], image_dim=[32, 32, 1])
     generator.build()
 
-    # Train one student with default data-free learning settings
-    distiller = DataFreeDistiller(teacher=teacher, student=student, generator=generator)
+    # # Train one student with default data-free learning settings
+    distiller = DataFreeDistiller(
+        teacher=teacher, student=student, generator=generator)
     distiller.compile(
-        batch_size=BATCH_SIZE,
         optimizer_student=keras.optimizers.Adam(learning_rate=2e-3, epsilon=1e-8),
         optimizer_generator=keras.optimizers.Adam(learning_rate=0.2, epsilon=1e-8),
-        onehot_loss_fn=keras.losses.SparseCategoricalCrossentropy(from_logits=True),
-        activation_loss_fn=tf.norm,
-        info_entropy_loss_fn=tf.math.log,
-        student_loss_fn=keras.losses.SparseCategoricalCrossentropy(from_logits=True),
-        distillation_loss_fn=tf.keras.losses.KLDivergence(),
-        alpha=ALPHA,
-        beta=BETA,
-        temperature=1,
+        onehot_loss_fn=True,
+        activation_loss_fn=True,
+        info_entropy_loss_fn=True,
+        distill_loss_fn=keras.losses.KLDivergence(),
+        student_loss_fn=keras.losses.SparseCategoricalCrossentropy(),
+        batch_size=512,
+        num_batches=120,
+        alpha=0.1,
+        beta=5.,
         confidence=None
     )
 
-    csv_logger = CSVLogger_custom(f'./logs/{distiller.name}_student.csv', append=True)
-    val_freq_printer = ValidationFreqPrinter(validation_freq=120)
-    threshold_stopper = ThresholdStopping(
-        threshold=-0.5,
-        monitor='loss_info_entropy',
-        patience=20,
-        epoch_begin=100,
-        mode='auto',
-        verbose=1
-    )
+    csv_logger = CSVLogger_custom(
+        f'./logs/{distiller.name}_{student.name}.csv', append=True)
 
     distiller.fit(
-        x=tf.random.normal(shape=(1, 1, 1, 1)),
-        y=tf.random.normal(shape=(1, 1, 1, 1)),
-        epochs=1,
-        callbacks=[csv_logger, threshold_stopper, val_freq_printer],
-        verbose=0,
+        epochs=0,
+        callbacks=[csv_logger],
+        verbose=1,
         shuffle=True,
         validation_data=ds['test']
     )
-    distiller.fit(
-        x=tf.random.normal(shape=(1, 1, 1, 1)),
-        y=tf.random.normal(shape=(1, 1, 1, 1)),
-        epochs=NUM_EPOCHS*120,
-        initial_epoch=1,
-        callbacks=[csv_logger, threshold_stopper, val_freq_printer],
-        verbose=0,
-        shuffle=True,
-        validation_data=ds['test'],
-        validation_freq=120
-    )
-
-    # Experiment 4.1 extended: Data-free learning on MNIST, with confidence
-    # Train multiple student using data-free learning across a range of confidence
+    # Experiment 4.1 extended: Data-free learning on MNIST, with confidence.
+    # Train multiple student using data-free learning across a range of
+    # confidence thresholds
     student = LeNet_5(half=True)
     student.build()
     student.compile(metrics='accuracy')
     student.evaluate(ds['test'])
 
-    generator = DataFreeGenerator(latent_dim=[100], image_dim=[32, 32, 1])
+    generator = DataFreeGenerator(latent_dim=100, image_dim=[32, 32, 1])
     generator.build()
 
-    distiller = DataFreeDistiller_Multiple(teacher=teacher, student=student, generator=generator)
+    distiller = DataFreeDistiller_Multiple(
+        teacher=teacher, student=student, generator=generator
+    )
+    optimizer_student = keras.optimizers.Adam(
+        learning_rate=LEARNING_RATE_STUDENT, epsilon=1e-8)
+    optimizer_generator = keras.optimizers.Adam(
+        learning_rate=LEARNING_RATE_GENERATOR, epsilon=1e-8)
     distiller.compile(
-        batch_size=BATCH_SIZE,
-        optimizer_student=keras.optimizers.Adam(learning_rate=2e-3, epsilon=1e-8),
-        optimizer_generator=keras.optimizers.Adam(learning_rate=0.2, epsilon=1e-8),
-        onehot_loss_fn=keras.losses.SparseCategoricalCrossentropy(from_logits=True),
-        activation_loss_fn=tf.norm,
-        info_entropy_loss_fn=tf.math.log,
-        student_loss_fn=keras.losses.SparseCategoricalCrossentropy(from_logits=True),
-        distillation_loss_fn=tf.keras.losses.KLDivergence(),
-        alpha=ALPHA,
-        beta=BETA,
-        temperature=1,
-        confidence=[None, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5,
-                    0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95]
+        optimizer_student=optimizer_student,
+        optimizer_generator=optimizer_generator,
+        onehot_loss_fn=True,
+        activation_loss_fn=True,
+        info_entropy_loss_fn=True,
+        distill_loss_fn=keras.losses.KLDivergence(),
+        student_loss_fn=keras.losses.SparseCategoricalCrossentropy(),
+        batch_size=512,
+        num_batches=5,
+        alpha=0.1,
+        beta=5.,
+        confidence=[None, 0.7, 0.8],
+        rebalance=[False, True],
     )
-
-    csv_logger = CSVLogger_custom(f'./logs/{distiller.name}_student.csv', append=True)
-    val_freq_printer = ValidationFreqPrinter(validation_freq=120)
-    threshold_stopper = ThresholdStopping(
-        threshold=-0.5,
-        monitor='loss_info_entropy',
-        patience=20,
-        epoch_begin=100,
-        mode='auto',
-        verbose=1
-    )
-    
     distiller.fit(
-        x=tf.random.normal(shape=(1, 1, 1, 1)),
-        y=tf.random.normal(shape=(1, 1, 1, 1)),
-        epochs=1,
-        callbacks=[csv_logger, threshold_stopper, val_freq_printer],
-        verbose=0,
+        epochs=5,
+        callbacks=[csv_logger],
+        verbose=1,
         shuffle=True,
         validation_data=ds['test']
-    )
-    distiller.fit(
-        x=tf.random.normal(shape=(1, 1, 1, 1)),
-        y=tf.random.normal(shape=(1, 1, 1, 1)),
-        epochs=NUM_EPOCHS*120,
-        initial_epoch=1,
-        callbacks=[csv_logger, threshold_stopper, val_freq_printer],
-        verbose=0,
-        shuffle=True,
-        validation_data=ds['test'],
-        validation_freq=120
     )

@@ -19,92 +19,144 @@ import tensorflow as tf
 keras = tf.keras
 
 class ConditionalGeneratorEmbed(keras.Model):
-    # TODO: add onehot_input
     """Conditional generator for cGAN. Conditional inputs is fed through an
     embedding layer and concatenated with shallow feature maps.
     
     Args:
         `latent_dim`: Dimension of latent space. Defaults to `100`.
         `image_dim`: Dimension of synthetic images. Defaults to `[28, 28, 1]`.
+        `base_dim`: Dimension of the shallowest feature maps. After each
+            convolutional layer, each dimension is doubled the and number of filters
+            is halved until `image_dim` is reached. Defaults to `[7, 7, 256]`.
         `embed_dim`: Dimension of embedding layer. Defaults to `50`.
         `num_classes`: Number of classes. Defaults to `10`.
+        `onehot_input`: `onehot_input`: Flag to indicate whether the model receives
+            one-hot or label encoded target classes. Defaults to `True`.
     """    
     _name = 'cGenerator_embed'
 
     def __init__(self,
                  latent_dim:int=100,
                  image_dim:List[int]=[28, 28, 1],
+                 base_dim:List[int]=[7, 7, 256],
                  embed_dim:int=50,
                  num_classes:int=10,
+                 onehot_input:bool=True,
                  **kwargs):
         """Initialize generator.
         
         Args:
             `latent_dim`: Dimension of latent space. Defaults to `100`.
             `image_dim`: Dimension of synthetic images. Defaults to `[28, 28, 1]`.
+            `base_dim`: Dimension of the shallowest feature maps. After each
+                convolutional layer, each dimension is doubled the and number of filters
+                is halved until `image_dim` is reached. Defaults to `[7, 7, 256]`.
             `embed_dim`: Dimension of embedding layer. Defaults to `50`.
             `num_classes`: Number of classes. Defaults to `10`.
-        """        
-        super().__init__(self, name=self._name, **kwargs)
+            `onehot_input`: `onehot_input`: Flag to indicate whether the model receives
+                one-hot or label encoded target classes. Defaults to `True`.
+        """
+        assert isinstance(onehot_input, bool), '`onehot_input` must be of type bool.'
 
+        # Parse architecture from input dimension
+        dim_ratio = [image_dim[axis]/base_dim[axis] for axis in range(len(image_dim)-1)]
+        for axis in range(len(dim_ratio)):
+            num_conv = tf.math.log(dim_ratio[axis])/tf.math.log(2.)
+            assert num_conv == int(num_conv), f'`base_dim` {base_dim[axis]} is not applicable with `image_dim` {image_dim[axis]} at axis {axis}.'
+            assert dim_ratio[axis] == dim_ratio[0], f'Ratio of `image_dim` and `base_dim` {image_dim[axis]}/{base_dim[axis]} at axis {axis} is mismatched with {image_dim[0]}/{base_dim[0]} at axis 0.'
+        num_conv = int(num_conv)
+
+        keras.Model.__init__(self, name=self._name, **kwargs)
         self.latent_dim = latent_dim
         self.image_dim = image_dim
+        self.base_dim = base_dim
         self.embed_dim = embed_dim
         self.num_classes = num_classes
+        self.onehot_input = onehot_input
 
-        # Traditional generator branch
-        self.latent_branch = keras.Sequential(
-            layers=[
-                keras.layers.Dense(units=128*7*7),
-                keras.layers.LeakyReLU(alpha=0.2),
-                keras.layers.Reshape(target_shape=(7, 7, 128))
-            ],
-            name='latent_branch'
-        )
+        # Traditional latent branch
+        self.latent_branch = keras.Sequential([
+            keras.layers.Dense(units=tf.math.reduce_prod(self.base_dim), use_bias=False),
+            keras.layers.Reshape(target_shape=self.base_dim),
+            keras.layers.BatchNormalization(),
+            keras.layers.ReLU()
+        ])
 
-        # Additional label branch (conditional)
-        # self.label_input = keras.layers.Input(shape=(1,))   # Sparse
-        self.label_branch = keras.Sequential(
-            layers=[
-                keras.layers.Embedding(
-                    input_dim=self.num_classes,
-                    output_dim=self.embed_dim,
-                    input_length=1), # Embed for categorical input
-                keras.layers.Dense(units=7*7),
-                keras.layers.Reshape(target_shape=(7, 7, 1))
-            ],
-            name='label_branch'
-        )
+        # Conditional label branch
+        if self.onehot_input is False:
+            self.cate_encode = keras.layers.CategoryEncoding(num_tokens=self.num_classes, output_mode='one_hot')
+        # Replace Embedding with Dense for compatibility with interpolated
+        # label inputs
+        self.label_branch = keras.Sequential([
+            # keras.layers.Embedding(
+            #     input_dim=self.num_classes,
+            #     output_dim=self.embed_dim,
+            #     input_length=1),
+            keras.layers.Dense(units=self.embed_dim),
+            keras.layers.Dense(units=tf.math.reduce_prod(self.base_dim[0:-1])),
+            keras.layers.Reshape(target_shape=(*self.base_dim[0:-1], 1))
+        ])
 
         # Main branch: concat both branches and upsample twice to 28*28
-        self.concat = keras.layers.Concatenate(name='concat')
-        self.main_branch = keras.Sequential(
-            layers=[
-                keras.layers.Conv2DTranspose(filters=128, kernel_size=(4, 4), strides=(2, 2), padding='same'),
-                keras.layers.LeakyReLU(alpha=0.2),
-                keras.layers.Conv2DTranspose(filters=128, kernel_size=(4, 4), strides=(2, 2), padding='same'),
-                keras.layers.LeakyReLU(alpha=0.2),
-                keras.layers.Conv2D(filters=self.image_dim[-1], kernel_size=(7, 7), padding='same'),
-                keras.layers.Activation(activation=tf.nn.tanh)
-            ],
-            name='main_branch'
-        )
+        if self.onehot_input is False:
+            self.cate_encode = keras.layers.CategoryEncoding(num_tokens=self.num_classes, output_mode='one_hot')
+        self.concat = keras.layers.Concatenate()
+        self.convt_block = [None for i in range(num_conv)]
+        for i in range(num_conv):
+            block_idx = i + 1
+            filters = self.base_dim[-1] // 2**(i+1)
+            if i < num_conv - 1:
+                self.convt_block[i] = keras.Sequential(
+                    layers=[
+                        keras.layers.Conv2DTranspose(filters=filters, kernel_size=(4, 4), strides=(2, 2), padding='same', use_bias=False, name=f'convt_{block_idx}'),
+                        keras.layers.BatchNormalization(name=f'bnorm_{block_idx}'),
+                        keras.layers.ReLU(name=f'relu_{block_idx}')
+                    ],
+                    name=f'convt_block_{block_idx}'
+                )
+            elif i == num_conv - 1:
+                # Last Conv2DTranspose: not use BatchNorm, replace relu with tanh
+                self.convt_block[i] = keras.Sequential(
+                    layers=[
+                        keras.layers.Conv2DTranspose(filters=self.image_dim[-1], kernel_size=(4, 4), strides=(2, 2), padding='same', use_bias=False, name=f'convt_{block_idx}'),
+                        keras.layers.Activation(activation=tf.nn.tanh, name=f'tanh_{block_idx}')
+                    ],
+                    name=f'convt_block_{block_idx}'
+                )
 
-    def call(self, inputs):
+    def call(self, inputs, training:bool=False):
         # Parse inputs
         latents, labels = inputs
         # Forward
         latents = self.latent_branch(latents)
+        if self.onehot_input is False:
+            labels = self.cate_encode(labels)
         labels = self.label_branch(labels)
         x = self.concat([latents, labels])
-        x = self.main_branch(x)
+        for block in self.convt_block:
+            x = block(x, training=training)
         return x
 
     def build(self):
-        super().build(input_shape=[[None, self.latent_dim], [None, 1]])
+        if self.onehot_input is True:
+            super().build(input_shape=[[None, self.latent_dim], [None, self.num_classes]])
+        elif self.onehot_input is False:
+            super().build(input_shape=[[None, self.latent_dim], [None, 1]])
+
+    def summary(self, with_graph:bool=False, **kwargs):
         latent_inputs = keras.layers.Input(shape=[self.latent_dim])
-        label_inputs = keras.layers.Input(shape=[1])
-        self.call([latent_inputs, label_inputs])
+        if self.onehot_input is True:
+            label_inputs = keras.layers.Input(shape=[self.num_classes])
+        elif self.onehot_input is False:
+            label_inputs = keras.layers.Input(shape=[1])
+        inputs = [latent_inputs, label_inputs]
+        outputs = self.call(inputs)
+
+        if with_graph is True:
+            dummy_model = keras.Model(inputs=inputs, outputs=outputs, name=self.name)
+            dummy_model.summary(**kwargs)
+        else:
+            super().summary(**kwargs)
 
     def get_config(self):
         config = super().get_config()
@@ -122,61 +174,98 @@ class ConditionalDiscriminatorEmbed(keras.Model):
     
     Args:
         `image_dim`: Dimension of input image. Defaults to `[28, 28, 1]`.
+        `base_dim`: Dimension of the shallowest feature maps, ideally equal to the
+            generator's. Opposite to the generator, after each convolutional layer,
+            each dimension from `image_dim` is halved and the number of filters is
+            doubled until `base_dim` is reached. Defaults to `[7, 7, 256]`.
         `embed_dim`: Dimension of embedding layer. Defaults to `50`.
         `num_classes`: Number of classes. Defaults to `10`.
         `return_logits`: flag to choose between return logits or probability.
             Defaults to `False`.
     """    
-    # TODO: add onehot_input
-    _name = 'cDiscriminator_stack'
+    _name = 'cDiscriminator_embed'
     
     def __init__(self,
                  image_dim:List[int]=[28, 28, 1],
+                 base_dim:List[int]=[7, 7, 256],
                  embed_dim:int=50,
                  num_classes:int=10,
+                 onehot_input:bool=True,
                  return_logits:bool=False,
                  **kwargs):
         """Initialize discriminator.
         
         Args:
             `image_dim`: Dimension of input image. Defaults to `[28, 28, 1]`.
+            `base_dim`: Dimension of the shallowest feature maps, ideally equal to the
+                generator's. Opposite to the generator, after each convolutional layer,
+                each dimension from `image_dim` is halved and the number of filters is
+                doubled until `base_dim` is reached. Defaults to `[7, 7, 256]`.
             `embed_dim`: Dimension of embedding layer. Defaults to `50`.
             `num_classes`: Number of classes. Defaults to `10`.
             `return_logits`: flag to choose between return logits or probability.
                 Defaults to `False`.
         """
+        assert isinstance(onehot_input, bool), '`onehot_input` must be of type bool.'
         assert isinstance(return_logits, bool), '`return_logits` must be of type bool.'
+
+        # Parse architecture from input dimension
+        dim_ratio = [image_dim[axis]/base_dim[axis] for axis in range(len(image_dim)-1)]
+        for axis in range(len(dim_ratio)):
+            num_conv = tf.math.log(dim_ratio[axis])/tf.math.log(2.)
+            assert num_conv == int(num_conv), f'`base_dim` {base_dim[axis]} is not applicable with `image_dim` {image_dim[axis]} at axis {axis}.'
+            assert dim_ratio[axis] == dim_ratio[0], f'Ratio of `image_dim` and `base_dim` {image_dim[axis]}/{base_dim[axis]} at axis {axis} is mismatched with {image_dim[0]}/{base_dim[0]} at axis 0.'
+        num_conv = int(num_conv)
 
         super().__init__(self, name=self._name, **kwargs)
         self.image_dim = image_dim
+        self.base_dim = base_dim
         self.embed_dim = embed_dim
         self.num_classes = num_classes
+        self.onehot_input = onehot_input
         self.return_logits = return_logits
 
-        self.label_branch = keras.Sequential(
-            layers=[
-                keras.layers.Embedding(
-                    input_dim=self.num_classes,
-                    output_dim=self.embed_dim,
-                    input_length=1),
-                keras.layers.Dense(units=self.image_dim[0]*self.image_dim[1]),
-                keras.layers.Reshape(target_shape=(self.image_dim[0], self.image_dim[1], 1))
-            ],
-            name='label_branch'
-        )
+        # Conditional label branch
+        if self.onehot_input is False:
+            self.cate_encode = keras.layers.CategoryEncoding(num_tokens=self.num_classes, output_mode='one_hot')
+        # Replace Embedding with Dense for compatibility with interpolated
+        # label inputs
+        self.label_branch = keras.Sequential([
+            # keras.layers.Embedding(
+            #     input_dim=self.num_classes,
+            #     output_dim=self.embed_dim,
+            #     input_length=1),
+            keras.layers.Dense(units=self.embed_dim),
+            keras.layers.Dense(units=self.image_dim[0]*self.image_dim[1]),
+            keras.layers.Reshape(target_shape=(self.image_dim[0], self.image_dim[1], 1))
+        ])
 
-        self.concat = keras.layers.Concatenate(name='concat')
-        self.main_branch = keras.Sequential(
-            layers=[
-                keras.layers.Conv2D(128, (3,3), strides=(2,2), padding='same'),
-                keras.layers.LeakyReLU(alpha=0.2),
-                keras.layers.Conv2D(128, (3,3), strides=(2,2), padding='same'),
-                keras.layers.LeakyReLU(alpha=0.2),
-                keras.layers.Flatten(),
-                keras.layers.Dropout(rate=0.4),
-            ],
-            name='main_branch'
-        )
+        self.concat = keras.layers.Concatenate()
+
+        self.conv_block = [None for i in range(num_conv)]
+        for i in range(num_conv):
+            block_idx = i
+            filters = self.base_dim[-1] // 2**(num_conv-1-i)
+            if i == 0:
+                # First Conv2D: not use BatchNorm 
+                self.conv_block[i] = keras.Sequential(
+                    layers=[
+                        keras.layers.Conv2D(filters=filters, kernel_size=(4, 4), strides=(2, 2), padding='same', use_bias=False, name=f'conv_{block_idx}'),
+                        keras.layers.LeakyReLU(alpha=0.2, name=f'lrelu_{block_idx}')
+                    ],
+                    name=f'conv_block_{block_idx}'
+                )
+            elif i > 0:
+                self.conv_block[i] = keras.Sequential(
+                    layers=[
+                        keras.layers.Conv2D(filters=filters, kernel_size=(4, 4), strides=(2, 2), padding='same', use_bias=False, name=f'conv_{block_idx}'),
+                        keras.layers.BatchNormalization(name=f'bnorm_{block_idx}'),
+                        keras.layers.LeakyReLU(alpha=0.2, name=f'lrelu_{block_idx}')
+                    ],
+                    name=f'conv_block_{block_idx}'
+                )
+        
+        self.flatten = keras.layers.Flatten()
         if self.return_logits is False:
             self.pred = keras.layers.Dense(units=1, name='pred', activation=tf.nn.sigmoid)
         elif self.return_logits is True:
@@ -186,9 +275,13 @@ class ConditionalDiscriminatorEmbed(keras.Model):
         # Parse inputs
         images, labels = inputs
         # Forward
+        if self.onehot_input is False:
+            labels = self.cate_encode(labels)
         labels = self.label_branch(labels)
         x = self.concat([images, labels])
-        x = self.main_branch(x, training=training)
+        for block in self.conv_block:
+            x = block(x, training=training)
+        x = self.flatten(x)
         if self.return_logits is False:
             x = self.pred(x)
         elif self.return_logits is True:
@@ -196,14 +289,25 @@ class ConditionalDiscriminatorEmbed(keras.Model):
         return x
     
     def build(self):
-        super().build(input_shape=[[None, *self.image_dim], [None, 1]])
-    
-    def summary(self, **kwargs):
+        if self.onehot_input is True:
+            super().build(input_shape=[[None, *self.image_dim], [None, self.num_classes]])
+        elif self.onehot_input is False:
+            super().build(input_shape=[[None, *self.image_dim], [None, 1]])
+
+    def summary(self, with_graph:bool=False, **kwargs):
         image_inputs = keras.layers.Input(shape=self.image_dim)
-        label_inputs = keras.layers.Input(shape=(1,))
+        if self.onehot_input is True:
+            label_inputs = keras.layers.Input(shape=[self.num_classes])
+        elif self.onehot_input is False:
+            label_inputs = keras.layers.Input(shape=[1])
         inputs = [image_inputs, label_inputs]
-        model = keras.Model(inputs=inputs, outputs=self.call(inputs))
-        return model.summary(**kwargs)
+        outputs = self.call(inputs)
+
+        if with_graph is True:
+            dummy_model = keras.Model(inputs=inputs, outputs=outputs, name=self.name)
+            dummy_model.summary(**kwargs)
+        else:
+            super().summary(**kwargs)
 
     def get_config(self):
         config = super().get_config()
@@ -232,7 +336,7 @@ class ConditionalGeneratorStack(keras.Model):
             `num_classes`: Number of classes. Defaults to `10`.
             `onehot_input`: `onehot_input`: Flag to indicate whether the model receives
                 one-hot or label encoded target classes. Defaults to `True`.
-        """                 
+        """
         assert isinstance(onehot_input, bool), '`onehot_input` must be of type bool.'
 
         super().__init__(self, name=self._name, **kwargs)
@@ -256,7 +360,7 @@ class ConditionalGeneratorStack(keras.Model):
         self.lrelu_1 = keras.layers.LeakyReLU(alpha=0.2)
         self.conv_2  = keras.layers.Conv2DTranspose(128, (4, 4), strides=(2, 2), padding="same")
         self.lrelu_2 = keras.layers.LeakyReLU(alpha=0.2)
-        self.conv_3  = keras.layers.Conv2D(1, (7, 7), padding="same", activation="tanh")
+        self.conv_3  = keras.layers.Conv2D(self.image_dim[-1], (7, 7), padding="same", activation="tanh")
     
     def call(self, inputs, training:bool=False):
         # Parse inputs
@@ -302,12 +406,22 @@ class ConditionalDiscriminatorStack(keras.Model):
     
     def __init__(self,
                  image_dim:List[int]=[28, 28, 1],
+                 base_dim:List[int]=[7, 7, 256],
                  num_classes:int=10,
                  onehot_input:bool=True,
                  return_logits:bool=False,
                  **kwargs):
         assert isinstance(onehot_input, bool), '`onehot_input` must be of type bool.'
         assert isinstance(return_logits, bool), '`return_logits` must be of type bool.'
+
+        # Parse architecture from input dimension
+        dim_ratio = [image_dim[axis]/base_dim[axis] for axis in range(len(image_dim)-1)]
+        for axis in range(len(dim_ratio)):
+            num_conv = tf.math.log(dim_ratio[axis])/tf.math.log(2.)
+            assert num_conv == int(num_conv), f'`base_dim` {base_dim[axis]} is not applicable with `image_dim` {image_dim[axis]} at axis {axis}.'
+            assert dim_ratio[axis] == dim_ratio[0], f'Ratio of `image_dim` and `base_dim` {image_dim[axis]}/{base_dim[axis]} at axis {axis} is mismatched with {image_dim[0]}/{base_dim[0]} at axis 0.'
+        num_conv = int(num_conv)
+
         super().__init__(self, name=self._name, **kwargs)
         self.image_dim = image_dim
         self.embed_dim = -1              # Unused, leave as-is for compatability
@@ -675,63 +789,34 @@ class ConditionalGenerativeAdversarialNetwork_keras(ConditionalGenerativeAdversa
         return results
 
 if __name__ == '__main__':
-    import tensorflow_datasets as tfds
     from models.GANs.utils import MakeConditionalSyntheticGIFCallback, MakeInterpolateSyntheticGIFCallback
+    from dataloader import dataloader
 
-    def def_gen_disc_stack_keras(batch_size = 64,
-                                 num_channels = 1,
-                                 num_classes = 10,
-                                 image_size = 28,
-                                 latent_dim = 128):
-        generator_in_channels = latent_dim + num_classes
-        discriminator_in_channels = num_channels + num_classes
+    ds = dataloader(
+        dataset='mnist',
+        rescale=[-1, 1],
+        batch_size_train=64,
+        batch_size_test=1000,
+        drop_remainder=True,
+        onehot_label=True)
 
-        generator = keras.Sequential(
-            [
-                keras.layers.InputLayer((generator_in_channels,)),
-                # We want to generate 128 + num_classes coefficients to reshape into a
-                # 7x7x(128 + num_classes) map.
-                keras.layers.Dense(7 * 7 * generator_in_channels),
-                keras.layers.LeakyReLU(alpha=0.2),
-                keras.layers.Reshape((7, 7, generator_in_channels)),
-                keras.layers.Conv2DTranspose(128, (4, 4), strides=(2, 2), padding="same"),
-                keras.layers.LeakyReLU(alpha=0.2),
-                keras.layers.Conv2DTranspose(128, (4, 4), strides=(2, 2), padding="same"),
-                keras.layers.LeakyReLU(alpha=0.2),
-                keras.layers.Conv2D(1, (7, 7), padding="same", activation="tanh"),
-            ],
-            name="generator",
-        )
-
-        discriminator = keras.Sequential(
-            [
-                keras.layers.InputLayer((28, 28, discriminator_in_channels)),
-                keras.layers.Conv2D(64, (3, 3), strides=(2, 2), padding="same"),
-                keras.layers.LeakyReLU(alpha=0.2),
-                keras.layers.Conv2D(128, (3, 3), strides=(2, 2), padding="same"),
-                keras.layers.LeakyReLU(alpha=0.2),
-                keras.layers.GlobalMaxPooling2D(),
-                keras.layers.Dense(1, activation='sigmoid'),
-            ],
-            name="discriminator",
-        )
-
-        return generator, discriminator
-
-    ds = tfds.load('mnist', as_supervised=True)
-    def preprocess(x, y):
-        x = tf.cast(x, tf.float32)/255.
-        x = (x - 0.5)/0.5
-        y = tf.cast(y, tf.int32)
-        y = tf.one_hot(indices=y, depth=10)
-        return x, y
-    ds['train'] = ds['train'].take(1000).map(preprocess).shuffle(60000).batch(64, drop_remainder=True).prefetch(1)
-    ds['test'] = ds['test'].map(preprocess).batch(500, drop_remainder=True).prefetch(1)
-
-    cgen = ConditionalGeneratorStack()
+    cgen = ConditionalGeneratorEmbed(
+        latent_dim=100,
+        image_dim=[28, 28, 1],
+        base_dim=[7, 7, 256],
+        # embed_dim=50,
+        num_classes=10,
+        onehot_input=True
+    )
     cgen.build()
 
-    cdisc = ConditionalDiscriminatorStack()
+    cdisc = ConditionalDiscriminatorEmbed(
+        image_dim=[28, 28, 1],
+        base_dim=[7, 7, 256],
+        # embed_dim=50,
+        num_classes=10,
+        onehot_input=True
+    )
     cdisc.build()
     
     cgan = ConditionalGenerativeAdversarialNetwork(
@@ -739,11 +824,8 @@ if __name__ == '__main__':
     )
     cgan.build()
     cgan.summary(line_length=120, expand_nested=True)
+    cgan.compile()
 
-    cgan.compile(
-        optimizer_gen=keras.optimizers.Adam(learning_rate=0.0003, beta_1=0.5),
-        optimizer_disc=keras.optimizers.Adam(learning_rate=0.0003, beta_1=0.5)
-    )
     csv_logger = keras.callbacks.CSVLogger(
         f'./logs/{cgan.name}_{cgan.generator.name}_{cgan.discriminator.name}.csv',
         append=True)
@@ -756,10 +838,14 @@ if __name__ == '__main__':
         filename=f'./logs/{cgan.name}_{cgan.generator.name}_{cgan.discriminator.name}_itpl.gif', 
         postprocess_fn=lambda x:(x+1)/2
     )
+    slerper = MakeInterpolateSyntheticGIFCallback(
+        filename=f'./logs/{cgan.name}_{cgan.generator.name}_{cgan.discriminator.name}_itpl_slerp.gif',
+        itpl_method='slerp',
+        postprocess_fn=lambda x:(x+1)/2
+    )
     cgan.fit(
         x=ds['train'],
-        epochs=1,
-        verbose=1,
-        callbacks=[csv_logger, gif_maker, interpolater],
+        epochs=50,
+        callbacks=[csv_logger, gif_maker, interpolater, slerper],
         validation_data=ds['test'],
     )

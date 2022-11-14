@@ -18,8 +18,7 @@ class DC_Generator(Generator):
     Args:
         `latent_dim`: Dimension of latent space. Defaults to `100`.
         `image_dim`: Dimension of synthetic images. Defaults to `[28, 28, 1]`.
-        `base_dim`: Dimension of inputs being fed to the first convolutional layers
-            (feature map dimension and the number of filters). After each
+        `base_dim`: Dimension of the shallowest feature maps. After each
             convolutional layer, each dimension is doubled the and number of filters
             is halved until `image_dim` is reached. Defaults to `[7, 7, 256]`.
     
@@ -37,8 +36,7 @@ class DC_Generator(Generator):
         Args:
             `latent_dim`: Dimension of latent space. Defaults to `100`.
             `image_dim`: Dimension of synthetic images. Defaults to `[28, 28, 1]`.
-            `base_dim`: Dimension of inputs being fed to the first convolutional layers
-                (feature map dimension and the number of filters). After each
+            `base_dim`: Dimension of the shallowest feature maps. After each
                 convolutional layer, each dimension is doubled the and number of filters
                 is halved until `image_dim` is reached. Defaults to `[7, 7, 256]`.
         """
@@ -55,8 +53,8 @@ class DC_Generator(Generator):
         self.image_dim = image_dim
         self.base_dim = base_dim
 
-        self.dense_0 = keras.layers.Dense(units=tf.math.reduce_prod(base_dim), use_bias=False, name='dense_0')
-        self.reshape = keras.layers.Reshape(target_shape=base_dim, name='reshape')
+        self.dense_0 = keras.layers.Dense(units=tf.math.reduce_prod(self.base_dim), use_bias=False, name='dense_0')
+        self.reshape = keras.layers.Reshape(target_shape=self.base_dim, name='reshape')
         self.bnorm_0 = keras.layers.BatchNormalization(name='bnorm_0')
         self.relu_0  = keras.layers.ReLU(name='relu_0')
 
@@ -81,7 +79,7 @@ class DC_Generator(Generator):
                         keras.layers.Activation(activation=tf.nn.tanh, name=f'tanh_{block_idx}')
                     ],
                     name=f'convt_block_{block_idx}'
-                )        
+                )
 
     def call(self, inputs, training:bool=False):
         x = self.dense_0(inputs)
@@ -107,13 +105,10 @@ class DC_Discriminator(Discriminator):
 
     Args:
         `image_dim`: Dimension of image. Defaults to `[28, 28, 1]`.
-        `base_dim`: Dimension of outputs of the last convolutional layer, or
-            equivalently, dimension of inputs before being flattened and fed to the
-            very last dense (output) node. Ideally should be the same to the
-            generator's . Opposite to the generator, after each convolutional layer,
+        `base_dim`: Dimension of the shallowest feature maps, ideally equal to the
+            generator's. Opposite to the generator, after each convolutional layer,
             each dimension from `image_dim` is halved and the number of filters is
-            doubled until `base_dim` is reached.
-            Defaults to `[7, 7, 256]`.
+            doubled until `base_dim` is reached. Defaults to `[7, 7, 256]`.
         `return_logits`: flag to choose between return logits or probability.
             Defaults to `False`.
     
@@ -130,13 +125,10 @@ class DC_Discriminator(Discriminator):
         
         Args:
             `image_dim`: Dimension of image. Defaults to `[28, 28, 1]`.
-            `base_dim`: Dimension of outputs of the last convolutional layer, or
-                equivalently, dimension of inputs before being flattened and fed to the
-                very last dense (output) node. Ideally should be the same to the
-                generator's . Opposite to the generator, after each convolutional layer,
+            `base_dim`: Dimension of the shallowest feature maps, ideally equal to the
+                generator's. Opposite to the generator, after each convolutional layer,
                 each dimension from `image_dim` is halved and the number of filters is
-                doubled until `base_dim` is reached.
-                Defaults to `[7, 7, 256]`.
+                doubled until `base_dim` is reached. Defaults to `[7, 7, 256]`.
             `return_logits`: flag to choose between return logits or probability.
                 Defaults to `False`.
         """
@@ -209,8 +201,6 @@ class DC_GenerativeAdversarialNetwork(GenerativeAdversarialNetwork):
     DOI: 10.48550/arXiv.1511.06434
     """    
     _name = 'DCGAN'
-    discrimator_class = DC_Discriminator
-    generator_class = DC_Generator
     
     def compile(self,
                 optimizer_disc:keras.optimizers.Optimizer=keras.optimizers.Adam(learning_rate=1e-4, beta_1=0.5),
@@ -236,64 +226,14 @@ class DC_GenerativeAdversarialNetwork(GenerativeAdversarialNetwork):
 if __name__ == '__main__':
     import tensorflow_datasets as tfds
     from models.GANs.utils import MakeSyntheticGIFCallback
+    from dataloader import dataloader
 
-    # tf.config.run_functions_eagerly(True)
-
-    ds, ds_info = tfds.load('mnist', as_supervised=True, with_info=True)
-    def preprocess(x, y):
-        x = tf.cast(x, tf.float32)/255. # Scale to range [0, 1]
-        x = 2*(x - 0.5)                 # Scale to range [-1, 1]
-        return x, y
-    ds['train'] = (ds['train']
-        .map(preprocess)
-        .shuffle(ds_info.splits['train'].num_examples).batch(256, drop_remainder=True)
-        .prefetch(1))
-    ds['test'] = (ds['test']
-        .map(preprocess)
-        .batch(ds_info.splits['test'].num_examples, drop_remainder=True)
-        .prefetch(1))
-
-    def make_gen_disc_tf_mnist():
-        """Make generator and discriminator models as in Tensorflow tutorial.
-        
-        Returns:
-            Generator and Discriminator.
-
-        https://www.tensorflow.org/tutorials/generative/dcgan.
-        """
-        gen = tf.keras.Sequential(
-            layers=[
-                keras.layers.Dense(7*7*256, use_bias=False, input_shape=(100,)),
-                keras.layers.BatchNormalization(),
-                keras.layers.LeakyReLU(),
-                keras.layers.Reshape((7, 7, 256)),
-                keras.layers.Conv2DTranspose(128, (5, 5), strides=(1, 1), padding='same', use_bias=False),
-                keras.layers.BatchNormalization(),
-                keras.layers.LeakyReLU(),
-                keras.layers.Conv2DTranspose(64, (5, 5), strides=(2, 2), padding='same', use_bias=False),
-                keras.layers.BatchNormalization(),
-                keras.layers.LeakyReLU(),
-                keras.layers.Conv2DTranspose(1, (5, 5), strides=(2, 2), padding='same', use_bias=False, activation='tanh'),
-
-            ],
-            name='DC_Generator_tf'
-        )
-
-        disc = tf.keras.Sequential(
-            layers=[
-                keras.layers.Conv2D(64, (5, 5), strides=(2, 2), padding='same', input_shape=[28, 28, 1]),
-                keras.layers.LeakyReLU(),
-                keras.layers.Dropout(0.3),
-                keras.layers.Conv2D(128, (5, 5), strides=(2, 2), padding='same'),
-                keras.layers.LeakyReLU(),
-                keras.layers.Dropout(0.3),
-                keras.layers.Flatten(),
-                keras.layers.Dense(1),
-            ],
-            name='DC_Discriminator_tf'
-        )
-
-        return gen, disc
+    ds = dataloader(
+        dataset='mnist',
+        rescale=[-1, 1],
+        batch_size_train=128,
+        batch_size_test=1000,
+        drop_remainder=True)
 
     gen = DC_Generator(image_dim=[28, 28, 1], base_dim=[7, 7, 256])
     gen.build()
@@ -303,7 +243,7 @@ if __name__ == '__main__':
 
     gan = DC_GenerativeAdversarialNetwork(generator=gen, discriminator=disc)
     gan.build()
-    gan.summary(expand_nested=True) 
+    gan.summary(expand_nested=True)
     gan.compile()
 
     csv_logger = keras.callbacks.CSVLogger(
@@ -311,6 +251,7 @@ if __name__ == '__main__':
         append=True
     )
     gif_maker = MakeSyntheticGIFCallback(
+        f'./logs/{gan.name}_{gan.generator.name}_{gan.discriminator.name}.gif',
         nrows=5, ncols=5,
         postprocess_fn=lambda x:(x+1)/2
     )
@@ -318,7 +259,6 @@ if __name__ == '__main__':
     gan.fit(
         x=ds['train'],
         epochs=50,
-        verbose=1,
         callbacks=[csv_logger, gif_maker],
         validation_data=ds['test'],
     )

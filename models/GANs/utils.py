@@ -1,5 +1,5 @@
 import warnings
-from typing import Callable, Union, List, Any
+from typing import Callable, Union, List, Any, Literal
 import os
 import glob
 
@@ -39,6 +39,7 @@ class MakeSyntheticGIFCallback(keras.callbacks.Callback):
                  image_dim:Union[None, List[int]]=None,
                  keep_noise:bool=True,
                  delete_png:bool=True,
+                 save_freq:int=1,
                  duration:float=5000,
                  **kwargs):
         """Initialize callback.
@@ -70,6 +71,7 @@ class MakeSyntheticGIFCallback(keras.callbacks.Callback):
         self.image_dim = image_dim
         self.keep_noise = keep_noise
         self.delete_png = delete_png
+        self.save_freq = save_freq
         self.duration = duration
 
         self.path_png_folder = self.filename[0:-4] + '_png'
@@ -152,7 +154,9 @@ class MakeSyntheticGIFCallback(keras.callbacks.Callback):
         #   - Zero-padding currently only works for already normalized range.
         #   - Label for each category (it is obvious with MNIST, but might not
         #       for other datasets)
-        #   - Update `cmap` for multi-channel pictures (eg CIFAR)
+        if epoch % self.save_freq > 0:
+            return
+
         fig, ax = subplots(constrained_layout=True, figsize=(self.ncols, 0.5 + self.nrows))
         fig.suptitle(f'{self.model.name} - Epoch {epoch}')
 
@@ -168,7 +172,12 @@ class MakeSyntheticGIFCallback(keras.callbacks.Callback):
             target_height=x.shape[0]-1, target_width=x.shape[1]-1
         )
         ax.axis('off')
-        ax.imshow(x.numpy().squeeze(axis=-1), cmap='gray')
+
+        if self.image_dim[-1] == 1:
+            ax.imshow(x.numpy().squeeze(axis=-1), cmap='gray')
+        elif self.image_dim[-1] > 1:
+            ax.imshow(x.numpy())
+
         fig.savefig(f"{self.path_png_folder}/{self.model.name}_epoch_{epoch:04d}.png")
         close(fig)
 
@@ -213,6 +222,7 @@ class MakeConditionalSyntheticGIFCallback(MakeSyntheticGIFCallback):
                  onehot_input:Union[None, bool]=None,
                  keep_noise:bool=True,
                  delete_png:bool=True,
+                 save_freq:int=1,
                  duration:float=5000,
                  **kwargs):
         """Initialize callback.
@@ -244,15 +254,16 @@ class MakeConditionalSyntheticGIFCallback(MakeSyntheticGIFCallback):
                 Defaults to `5000`.
         """                 
         super(MakeConditionalSyntheticGIFCallback, self).__init__(
-            filename      =filename,
-            nrows         =None,
-            ncols         =None,
+            filename=filename,
+            nrows=None,
+            ncols=None,
             postprocess_fn=postprocess_fn,
-            latent_dim    =latent_dim,
-            image_dim     =image_dim,
-            keep_noise    =keep_noise,
-            delete_png    =delete_png,
-            duration      =duration,
+            latent_dim=latent_dim,
+            image_dim=image_dim,
+            keep_noise=keep_noise,
+            delete_png=delete_png,
+            save_freq=save_freq,
+            duration=duration,
             **kwargs
         )
         self.target_classes = target_classes
@@ -294,6 +305,7 @@ class MakeConditionalSyntheticGIFCallback(MakeSyntheticGIFCallback):
         return x_synth
 
 class MakeInterpolateSyntheticGIFCallback(MakeSyntheticGIFCallback):
+    # TODO: Spherical linear interpolation
     """Callback to generate synthetic images, interpolated between the classes of a
     Conditional Generative Adversarial Network.
     
@@ -304,7 +316,7 @@ class MakeInterpolateSyntheticGIFCallback(MakeSyntheticGIFCallback):
         `filename`: Path to save GIF to. Defaults to `'./logs/GAN_itpl.gif'`.
         `start_classes`: Classes at the start of interpolation along the rows, leave
             as `None` to include all classes. Defaults to `None`.
-        `end_classes`: Classes at the end of interpolation along the columns, leave
+        `stop_classes`: Classes at the stop of interpolation along the columns, leave
             as `None` to include all classes. Defaults to `None`.
         `num_interpolate`: Number of interpolation. Defaults to `21`.
         `postprocess_fn`: Post-processing function to map synthetic images back to
@@ -326,8 +338,9 @@ class MakeInterpolateSyntheticGIFCallback(MakeSyntheticGIFCallback):
     def __init__(self,
                  filename:str='./logs/GAN_itpl.gif',
                  start_classes:List[int]=None,
-                 end_classes:List[int]=None,
-                 num_interpolate:int=21,
+                 stop_classes:List[int]=None,
+                 num_itpl:int=51,
+                 itpl_method:Literal['linspace', 'slerp']='linspace',
                  postprocess_fn:Union[None, Callable[[Any], Any]]=None,
                  latent_dim:Union[None, int]=None,
                  image_dim:Union[None, List[int]]=None,
@@ -342,7 +355,7 @@ class MakeInterpolateSyntheticGIFCallback(MakeSyntheticGIFCallback):
             `filename`: Path to save GIF to. Defaults to `'./logs/GAN_itpl.gif'`.
             `start_classes`: Classes at the start of interpolation along the rows, leave
                 as `None` to include all classes. Defaults to `None`.
-            `end_classes`: Classes at the end of interpolation along the columns, leave
+            `stop_classes`: Classes at the stop of interpolation along the columns, leave
                 as `None` to include all classes. Defaults to `None`.
             `num_interpolate`: Number of interpolation. Defaults to `21`.
             `postprocess_fn`: Post-processing function to map synthetic images back to
@@ -361,45 +374,43 @@ class MakeInterpolateSyntheticGIFCallback(MakeSyntheticGIFCallback):
             `duration`: Duration of the generated GIF in milliseconds.
                 Defaults to `5000`.
         """
-        assert num_interpolate > 2, (
+        assert num_itpl > 2, (
             '`num_interpolate` (including the left and right classes) must be' +
             ' larger than 2.'
         )
+        assert itpl_method in ['linspace', 'slerp'], (
+            "`itpl_method` must be 'linspace' or 'slerp'"
+        )
+
         super().__init__(
-            filename      =filename,
-            nrows         =None,
-            ncols         =None,
+            filename=filename,
+            nrows=None,
+            ncols=None,
             postprocess_fn=postprocess_fn,
-            latent_dim    =latent_dim,
-            image_dim     =image_dim,
-            keep_noise    =keep_noise,
-            delete_png    =delete_png,
-            duration      =duration,
+            latent_dim=latent_dim,
+            image_dim=image_dim,
+            keep_noise=keep_noise,
+            delete_png=delete_png,
+            duration=duration,
             **kwargs
         )
+        self.itpl_method = itpl_method
         self.start_classes = start_classes
-        self.end_classes = end_classes
-        self.num_interpolate = num_interpolate
+        self.stop_classes = stop_classes
+        self.num_itpl = num_itpl
         self.num_classes = num_classes
-    
+        # Reset unused inherited attributes
+        self.save_freq = None
+
     def on_epoch_end(self, epoch, logs=None):
-        # Deactivate on_epoch_end()
+        # Deactivate MakeSyntheticGIFCallback.on_epoch_end()
         return keras.callbacks.Callback.on_epoch_end(self, epoch, logs)
     
     def on_train_end(self, logs=None):
-        # One-hot encode start- and end-classes
-        start_oh = tf.one_hot(indices=self.start_classes, depth=self.num_classes)
-        start_oh = tf.expand_dims(input=start_oh, axis=1)
-        start_oh = tf.broadcast_to(input=start_oh, shape=[self.nrows, self.ncols, self.num_classes])
-
-        end_oh = tf.one_hot(indices=self.end_classes, depth=self.num_classes)
-        end_oh = tf.expand_dims(input=end_oh, axis=0)
-        end_oh = tf.broadcast_to(input=end_oh, shape=[self.nrows, self.ncols, self.num_classes])
-
-        # Interpolate from start- to end-classes
-        interpolate_ratios = tf.cast(tf.linspace(start=0, stop=1, num=self.num_interpolate), dtype=tf.float32).numpy().tolist()
-        for ratio in interpolate_ratios:
-            label = ((1-ratio)*start_oh + ratio*end_oh)
+        # Interpolate from start- to stop-classes
+        itpl_ratios = tf.cast(tf.linspace(start=0, stop=1, num=self.num_itpl), dtype=tf.float32).numpy().tolist()
+        for ratio in itpl_ratios:
+            label = self._interpolate(start=self.start, stop=self.stop, ratio=ratio)
             self.label = tf.concat(tf.unstack(label), axis=0)
             x_synth = self.synthesize_images()
             self.make_figure(x_synth, ratio)
@@ -424,6 +435,7 @@ class MakeInterpolateSyntheticGIFCallback(MakeSyntheticGIFCallback):
 
     def handle_args(self):
         super().handle_args()
+
         if self.model.onehot_input is None:
             warnings.warn(
                 f'Model {self.model.name} does not have attribute `onehot_input`. ' +
@@ -438,14 +450,19 @@ class MakeInterpolateSyntheticGIFCallback(MakeSyntheticGIFCallback):
         if self.num_classes is None:
             self.num_classes:int = self.model.num_classes
 
-        # Parse start_classes and end_classes
+        # Parse interpolate method, start_classes and stop_classes
+        if self.itpl_method == 'linspace':
+            self._interpolate = self.linspace
+        elif self.itpl_method == 'slerp':
+            self._interpolate = self.slerp
+
         if self.start_classes is None:
             self.start_classes = [label for label in range(self.num_classes)]
-        if self.end_classes is None:
-            self.end_classes = [label for label in range(self.num_classes)]
+        if self.stop_classes is None:
+            self.stop_classes = [label for label in range(self.num_classes)]
 
         self.nrows = len(self.start_classes)
-        self.ncols = len(self.end_classes)
+        self.ncols = len(self.stop_classes)
 
     def synthesize_images(self):
         if self.keep_noise is False:
@@ -468,7 +485,6 @@ class MakeInterpolateSyntheticGIFCallback(MakeSyntheticGIFCallback):
         #   - Zero-padding currently only works for already normalized range.
         #   - Label for each category (it is obvious with MNIST, but might not
         #       for other datasets)
-        #   - Update `cmap` for multi-channel pictures (eg CIFAR)
         fig, ax = subplots(constrained_layout=True, figsize=(self.ncols, 0.5 + self.nrows))
         fig.suptitle(f'{self.model.name} - Interpolation: {ratio*100:.2f}%')
 
@@ -484,9 +500,68 @@ class MakeInterpolateSyntheticGIFCallback(MakeSyntheticGIFCallback):
             target_height=x.shape[0]-1, target_width=x.shape[1]-1
         )
         ax.axis('off')
-        ax.imshow(x.numpy().squeeze(axis=-1), cmap='gray')
+
+        if self.image_dim[-1] == 1:
+            ax.imshow(x.numpy().squeeze(axis=-1), cmap='gray')
+        elif self.image_dim[-1] > 1:
+            ax.imshow(x.numpy())
+            
         fig.savefig(f"{self.path_png_folder}/{self.model.name}_itpl_{ratio:.4f}.png")
         close(fig)
+
+    def precompute_inputs(self):
+        super(MakeInterpolateSyntheticGIFCallback, self).precompute_inputs()
+        # Convert to one-hot labels
+        start = tf.one_hot(indices=self.start_classes, depth=self.num_classes)
+        stop = tf.one_hot(indices=self.stop_classes, depth=self.num_classes)
+
+        # Expand dimensions to have shape [nrows, ncols, num_classes]
+        start = tf.expand_dims(input=start, axis=1)
+        start = tf.repeat(start, repeats=self.ncols, axis=1)
+        stop = tf.expand_dims(input=stop, axis=0)
+        stop = tf.repeat(stop, repeats=self.nrows, axis=0)
+
+        self.start = start
+        self.stop = stop
+
+        if self.itpl_method == 'slerp':
+            # Normalize (L2) to [-1, 1] for numerical stability
+            norm_start = start/tf.norm(start, axis=-1)
+            norm_stop = stop/tf.norm(stop, axis=-1)
+
+            dotted = tf.math.reduce_sum(norm_start*norm_stop, axis=-1)
+            # Clip to [-1, 1] for numerical stability
+            clipped = tf.clip_by_value(dotted, -1, 1)
+            omegas = tf.acos(clipped)
+            sinned = tf.sin(omegas)
+
+            # Expand dimensions to have shape [nrows, ncols, num_classes]
+            omegas = tf.expand_dims(omegas, axis=-1)
+            omegas = tf.repeat(omegas, repeats=self.num_classes, axis=-1)
+            sinned = tf.expand_dims(sinned, axis=-1)
+            sinned = tf.repeat(sinned, repeats=self.num_classes, axis=-1)
+            zeros_mask = (omegas == 0)
+
+            self.omegas = omegas
+            self.sinned = sinned
+            self.zeros_mask = zeros_mask
+
+    def linspace(self, start, stop, ratio:float):
+        label = ((1-ratio)*start + ratio*stop)
+        return label
+    
+    def slerp(self, start, stop, ratio:float):
+        label = tf.where(
+            self.zeros_mask,
+            # Normal case: omega(s) != 0
+            self.linspace(start=start, stop=stop, ratio=ratio),
+            # Special case: omega(s) == 0 --> Use L'Hospital's rule for sin(0)/0
+            (
+                tf.sin((1-ratio)*self.omegas) / self.sinned * start + 
+                tf.sin(ratio    *self.omegas) / self.sinned * stop
+            )
+        )
+        return label
 
 class RepeatTensor(keras.layers.Layer):
     """Repeats the input based on given size.
@@ -539,7 +614,8 @@ if __name__ == '__main__':
     print('x:', x.numpy())
     x = repeat(x)
     print()
-    print("RepeatTensor([5, 5])(x)[1]'s feature maps:\n", *[str(x[1, :, :, i].numpy())+'\n\n' for i in range(4)])
+    print("RepeatTensor([5, 5])(x)[1]'s feature maps:\n",
+          *[str(x[1, :, :, i].numpy())+'\n\n' for i in range(4)])
 
     print(x.shape)
     # print(*[[x[j, :, :, i].numpy().mean() for i in range(10)] for j in range(len(example))], sep='\n')

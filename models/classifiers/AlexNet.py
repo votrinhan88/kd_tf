@@ -12,44 +12,48 @@ class AlexNet(keras.Model):
     et al. (2012)
     DOI: 10.1145/3065386
 
+    Args:
+        `half`: Flag to choose between AlexNet or AlexNet-Half. Defaults to `False`.
+        `input_dim`: Dimension of input images. Defaults to `[32, 32, 3]`.
+        `num_classes`: Number of output nodes. Defaults to `10`.
+        `return_logits`: Flag to choose between return logits or probability.
+            Defaults to `False`.
+    
     Two versions: AlexNet and AlexNet-Half following the architecture in 'Zero-Shot
     Knowledge Distillation in Deep Networks' - Nayak et al. (2019)
-
     Implementation: https://github.com/nphdang/FS-BBT/blob/main/cifar10/alexnet_model.py
-
-    Args:
-        half (bool, optional): flag to choose between AlexNet or AlexNet-Half.
-            Defaults to False.
-        input_dim (List[int], optional): dimension of input images.
-            Defaults to [32, 32, 3].
-        num_classes (int, optional): number of output nodes.
-            Defaults to 10.
     """    
     _name = 'AlexNet'
 
-    def __init__(self, half:bool=False, input_dim:List[int]=[32, 32, 3], num_classes:int=10, *args, **kwargs):
+    def __init__(self,
+                 half:bool=False,
+                 input_dim:List[int]=[32, 32, 3],
+                 num_classes:int=10,
+                 return_logits:bool=False,
+                 **kwargs):
         """Initialize model.
-
+        
         Args:
-            half (bool, optional): flag to choose between AlexNet or AlexNet-Half.
-                Defaults to False.
-            input_dim (List[int], optional): dimension of input images.
-                Defaults to [32, 32, 3].
-            num_classes (int, optional): number of output nodes.
-                Defaults to 10.
-        """        
+            `half`: Flag to choose between AlexNet or AlexNet-Half. Defaults to `False`.
+            `input_dim`: Dimension of input images. Defaults to `[32, 32, 3]`.
+            `num_classes`: Number of output nodes. Defaults to `10`.
+            `return_logits`: Flag to choose between return logits or probability.
+                Defaults to `False`.
+        """    
         assert isinstance(half, bool), "'half' should be of type bool"
+        assert isinstance(return_logits, bool), '`return_logits` must be of type bool.'
 
-        if half == False:
-            super().__init__(name=self._name, *args, **kwargs)
+        if half is False:
+            super().__init__(name=self._name, **kwargs)
             divisor = 1
-        elif half == True:
-            super().__init__(name=self._name + '-Half', *args, **kwargs)
+        elif half is True:
+            super().__init__(name=self._name + '-Half', **kwargs)
             divisor = 2
 
         self.half = half
         self.input_dim = input_dim
         self.num_classes = num_classes
+        self.return_logits = return_logits
         
         # Workaround to access first layer's input (cannot access sub-module of
         # subclassed models)
@@ -124,8 +128,13 @@ class AlexNet(keras.Model):
             name='fc_2'
         )
         
-        self.logits = keras.layers.Dense(num_classes, bias_initializer='zeros', name='logits')
-        # model.add(Activation('softmax'))
+        if self.return_logits is False:
+            if self.num_classes == 1:
+                self.pred = keras.layers.Dense(units=self.num_classes, name='pred', activation=tf.nn.sigmoid)
+            elif self.num_classes > 1:
+                self.pred = keras.layers.Dense(units=self.num_classes, name='pred', activation=tf.nn.softmax)
+        elif self.return_logits is True:
+            self.logits = keras.layers.Dense(units=self.num_classes, name='logits')
     
     def call(self, inputs, training:bool=False):
         x = self.input_layer(inputs)
@@ -137,7 +146,10 @@ class AlexNet(keras.Model):
         x = self.flatten(x)
         x = self.fc_1(x)
         x = self.fc_2(x)
-        x = self.logits(x)
+        if self.return_logits is False:
+            x = self.pred(x)
+        elif self.return_logits is True:
+            x = self.logits(x)
         return x
 
     def build(self):
@@ -146,15 +158,14 @@ class AlexNet(keras.Model):
         self.call(inputs)
 
     def get_config(self):
-        return {
+        config = super().get_config()
+        config.update({
             'half': self.half,
             'input_dim': self.input_dim,
-            'num_classes': self.num_classes
-        }
-
-    @classmethod
-    def from_config(cls, config):
-        return cls(**config)
+            'num_classes': self.num_classes,
+            'return_logits': self.return_logits
+        })
+        return config
     
 if __name__ == '__main__':
     # Change path
