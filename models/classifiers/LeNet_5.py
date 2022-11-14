@@ -6,6 +6,13 @@ class LeNet_5(keras.Model):
     '''Gradient-based learning applied to document recognition
     DOI: 10.1109/5.726791
 
+    Args:
+        `half`: Flag to choose between LeNet-5 or LeNet-5-HALF. Defaults to `False`.
+        `input_dim`: Dimension of input images. Defaults to `[32, 32, 1]`.
+        `num_classes`: Number of output nodes. Defaults to `10`.
+        `return_logits`: Flag to choose between return logits or probability.
+            Defaults to `False`.
+
     Two versions: LeNet-5 and LeNet-5-HALF
     Implementation: https://datahacker.rs/lenet-5-implementation-tensorflow-2-0/
     '''
@@ -20,10 +27,10 @@ class LeNet_5(keras.Model):
         """Initialize model.
         
         Args:
-            `half`: flag to choose between LeNet-5 or LeNet-5-HALF. Defaults to `False`.
-            `input_dim`: dimension of input images. Defaults to `[32, 32, 1]`.
-            `num_classes`: number of output nodes. Defaults to `10`.
-            `return_logits`: flag to choose between return logits or probability.
+            `half`: Flag to choose between LeNet-5 or LeNet-5-HALF. Defaults to `False`.
+            `input_dim`: Dimension of input images. Defaults to `[32, 32, 1]`.
+            `num_classes`: Number of output nodes. Defaults to `10`.
+            `return_logits`: Flag to choose between return logits or probability.
                 Defaults to `False`.
         """
         assert isinstance(half, bool), '`half` must be of type bool'
@@ -71,9 +78,17 @@ class LeNet_5(keras.Model):
         return x
 
     def build(self):
-        super().build(input_shape=[None]+self.input_dim)
+        super().build(input_shape=[None, *self.input_dim])
+
+    def summary(self, with_graph:bool=False, **kwargs):
         inputs = keras.layers.Input(shape=self.input_dim)
-        self.call(inputs)
+        outputs = self.call(inputs)
+
+        if with_graph is True:
+            dummy_model = keras.Model(inputs=inputs, outputs=outputs, name=self.name)
+            dummy_model.summary(**kwargs)
+        else:
+            super().summary(**kwargs)
 
     def get_config(self):
         config = super().get_config()
