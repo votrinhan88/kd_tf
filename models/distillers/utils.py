@@ -1,3 +1,5 @@
+from typing import Tuple
+
 import numpy as np
 import collections
 import csv
@@ -5,6 +7,40 @@ from keras.utils import io_utils
 import tensorflow as tf
 keras = tf.keras
 from tensorflow.python.platform import tf_logging as logging
+
+class PlaceholderDataGenerator(keras.utils.Sequence):
+    '''Produce placeholder batches of data to pass to `model.fit()` (when no training
+    data is required but need to bypass TensorFlow data handler).
+
+    Args:
+        `num_batches`: Number of batches. Defaults to `120`.
+        `batch_size`: Batch size. Defaults to `512`.
+
+    Theoretically should contained totally `num_batches*batch_size` examples.
+    However, since this generator only outputs placeholder data (`__getitem__()`),
+    we do not need to worry about batch size.
+    
+    Reference: https://www.tensorflow.org/api_docs/python/tf/keras/utils/Sequence
+    '''
+    def __init__(self,
+                 num_batches:int=120,
+                 batch_size:int=512,
+                 **kwargs):                 
+        """Initialize generator.
+        
+        Args:
+            `num_batches`: Number of batches. Defaults to `120`.
+            `batch_size`: Batch size. Defaults to `512`.
+        """        
+        super().__init__(**kwargs)
+        self.num_batches = num_batches
+        self.batch_size = batch_size
+
+    def __len__(self) -> int:
+        return self.num_batches
+
+    def __getitem__(self, index=None) -> Tuple[tf.Tensor, tf.Tensor]:
+        return tf.zeros(shape=[self.batch_size, 1]), tf.zeros(shape=[self.batch_size, 1])
 
 def add_fmap_output(model:keras.Model, fmap_layer:str) -> keras.Model:
     """Extract a model's feature map and add to its outputs.

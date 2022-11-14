@@ -1,0 +1,6 @@
+datasets/
+logs/
+scrap.py
+
+# pycache
+*.pyc
