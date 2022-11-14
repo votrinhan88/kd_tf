@@ -165,10 +165,12 @@ class GenerativeAdversarialNetwork(keras.Model):
         super(GenerativeAdversarialNetwork, self).__init__(self, name=self._name, **kwargs)
         self.generator = generator
         self.discriminator = discriminator
+
         if latent_dim is None:
             self.latent_dim:int = self.generator.latent_dim
         elif latent_dim is not None:
             self.latent_dim = latent_dim
+
         if image_dim is None:
             self.image_dim:int = self.generator.image_dim
         elif image_dim is not None:
@@ -258,6 +260,7 @@ class GenerativeAdversarialNetwork(keras.Model):
         trainable_vars = self.generator.trainable_variables
         gradients = tape.gradient(loss_gen, trainable_vars)        
         self.optimizer_gen.apply_gradients(zip(gradients, trainable_vars))
+        del tape
 
         # Update the metrics, configured in 'compile()'.
         self.loss_real_metric.update_state(loss_real)
@@ -315,22 +318,15 @@ if __name__ == '__main__':
     assert os.path.basename(repo_path) == 'kd_tf', "Wrong parent folder. Please change to 'kd_tf'"
     sys.path.append(repo_path)
 
-    import tensorflow_datasets as tfds
     from models.GANs.utils import MakeSyntheticGIFCallback
+    from dataloader import dataloader
 
-    ds, ds_info = tfds.load('mnist', as_supervised=True, with_info=True)
-    def preprocess(x, y):
-        x = tf.cast(x, tf.float32)/255. # Scale to range [0, 1]
-        x = 2*(x - 0.5)                 # Scale to range [-1, 1]
-        return x, y
-    ds['train'] = (ds['train']
-        .map(preprocess)
-        .shuffle(ds_info.splits['train'].num_examples).batch(32, drop_remainder=True)
-        .prefetch(1))
-    ds['test'] = (ds['test']
-        .map(preprocess)
-        .batch(ds_info.splits['test'].num_examples, drop_remainder=True)
-        .prefetch(1))
+    ds = dataloader(
+        dataset='mnist',
+        rescale=[-1, 1],
+        batch_size_train=128,
+        batch_size_test=1000,
+        drop_remainder=True)
 
     gen = Generator()
     gen.build()
