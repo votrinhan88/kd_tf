@@ -5,9 +5,14 @@ import glob
 
 import tensorflow as tf
 keras = tf.keras
-from matplotlib.pyplot import subplots, close
+import matplotlib.pyplot as plt
+from matplotlib.axes import Axes
+from matplotlib.figure import Figure
+import numpy as np
 import PIL
 
+# TODO:
+#   - Zero-padding currently only works for already normalized range.
 class MakeSyntheticGIFCallback(keras.callbacks.Callback):
     """Callback to generate synthetic images, typically used with a Generative
     Adversarial Network.
@@ -89,7 +94,8 @@ class MakeSyntheticGIFCallback(keras.callbacks.Callback):
 
     def on_epoch_end(self, epoch, logs=None):
         x_synth = self.synthesize_images()
-        self.make_figure(x_synth, epoch)
+        if epoch % self.save_freq == 0:
+            self.make_figure(x_synth, epoch)
         return super().on_epoch_end(epoch, logs)
 
     def on_train_end(self, logs=None):
@@ -142,7 +148,7 @@ class MakeSyntheticGIFCallback(keras.callbacks.Callback):
         x_synth = self.postprocess_fn(x_synth)
         return x_synth
 
-    def make_figure(self, x_synth:tf.Tensor, epoch:int):
+    def make_figure(self, x_synth:tf.Tensor, value:Union[int, float]):
         """Tile the synthetic images into a nice grid, then make and save a figure at
         the given epoch.
         
@@ -150,15 +156,8 @@ class MakeSyntheticGIFCallback(keras.callbacks.Callback):
             `x_synth`: A batch of synthetic images.
             `epoch`: Current epoch.
         """
-        # TODO:
-        #   - Zero-padding currently only works for already normalized range.
-        #   - Label for each category (it is obvious with MNIST, but might not
-        #       for other datasets)
-        if epoch % self.save_freq > 0:
-            return
-
-        fig, ax = subplots(constrained_layout=True, figsize=(self.ncols, 0.5 + self.nrows))
-        fig.suptitle(f'{self.model.name} - Epoch {epoch}')
+        fig, ax = plt.subplots(constrained_layout=True, figsize=(self.ncols, 0.5 + self.nrows))
+        self.modify_suptitle(figure=fig, value=value)
 
         # Tile images into a grid
         x = x_synth
@@ -171,15 +170,26 @@ class MakeSyntheticGIFCallback(keras.callbacks.Callback):
             offset_height=1, offset_width=1,
             target_height=x.shape[0]-1, target_width=x.shape[1]-1
         )
-        ax.axis('off')
+        x = x.numpy()
+
+        self.modify_axis(axis=ax)
 
         if self.image_dim[-1] == 1:
-            ax.imshow(x.numpy().squeeze(axis=-1), cmap='gray')
+            ax.imshow(x.squeeze(axis=-1), cmap='gray')
         elif self.image_dim[-1] > 1:
-            ax.imshow(x.numpy())
+            ax.imshow(x)
 
-        fig.savefig(f"{self.path_png_folder}/{self.model.name}_epoch_{epoch:04d}.png")
-        close(fig)
+        fig.savefig(self.modify_savepath(value=value))
+        plt.close(fig)
+
+    def modify_suptitle(self, figure:Figure, value:int):
+        figure.suptitle(f'{self.model.name} - Epoch {value}')
+
+    def modify_axis(self, axis:Axes):
+        axis.axis('off')
+
+    def modify_savepath(self, value:int):
+        return f"{self.path_png_folder}/{self.model.name}_epoch_{value:04d}.png"
 
 class MakeConditionalSyntheticGIFCallback(MakeSyntheticGIFCallback):
     """Callback to generate synthetic images, typically used with a Conditional
@@ -201,6 +211,9 @@ class MakeConditionalSyntheticGIFCallback(MakeSyntheticGIFCallback):
             from model. Defaults to `None`.
         `num_classes`: Number of classes, leave as `None` to be parsed from model.
             Defaults to `None`.
+        `class_names`: List of name of labels, should have length equal to total
+            number of classes. Leave as `None` for generic `'class x'` names.
+            Defaults to `None`.
         `onehot_input`: Flag to indicate whether the GAN model/generator receives
             one-hot or label encoded target classes, leave as `None` to be parsed
             from model. Defaults to `None`.
@@ -219,6 +232,7 @@ class MakeConditionalSyntheticGIFCallback(MakeSyntheticGIFCallback):
                  latent_dim:Union[None, int]=None,
                  image_dim:Union[None, List[int]]=None,
                  num_classes:Union[None, int]=None,
+                 class_names:Union[None, List[str]]=None,
                  onehot_input:Union[None, bool]=None,
                  keep_noise:bool=True,
                  delete_png:bool=True,
@@ -242,6 +256,9 @@ class MakeConditionalSyntheticGIFCallback(MakeSyntheticGIFCallback):
             `image_dim`: Dimension of synthetic images, leave as `None` to be parsed
                 from model. Defaults to `None`.
             `num_classes`: Number of classes, leave as `None` to be parsed from model.
+                Defaults to `None`.
+            `class_names`: List of name of labels, should have length equal to total
+                number of classes. Leave as `None` for generic `'class x'` names.
                 Defaults to `None`.
             `onehot_input`: Flag to indicate whether the GAN model/generator receives
                 one-hot or label encoded target classes, leave as `None` to be parsed
@@ -269,12 +286,16 @@ class MakeConditionalSyntheticGIFCallback(MakeSyntheticGIFCallback):
         self.target_classes = target_classes
         self.num_samples_per_class = num_samples_per_class
         self.num_classes = num_classes
+        self.class_names = class_names
         self.onehot_input = onehot_input
 
     def handle_args(self):
         super(MakeConditionalSyntheticGIFCallback, self).handle_args()
         if self.num_classes is None:
             self.num_classes:int = self.model.num_classes
+
+        if self.class_names is None:
+            self.class_names = [f'Class {i}' for i in range(self.num_classes)]
 
         if self.onehot_input is None:
             self.onehot_input:bool = self.model.onehot_input
@@ -304,8 +325,15 @@ class MakeConditionalSyntheticGIFCallback(MakeSyntheticGIFCallback):
         x_synth = self.postprocess_fn(x_synth)
         return x_synth
 
+    def modify_axis(self, axis:Axes):
+        xticks = (self.image_dim[1] + 1)*np.arange(len(self.target_classes)) + self.image_dim[1]/2
+        xticklabels = [self.class_names[label] for label in self.target_classes]
+        
+        axis.set_frame_on(False)
+        axis.tick_params(axis='both', length=0)
+        axis.set(yticks=[], xticks=xticks, xticklabels=xticklabels)
+
 class MakeInterpolateSyntheticGIFCallback(MakeSyntheticGIFCallback):
-    # TODO: Spherical linear interpolation
     """Callback to generate synthetic images, interpolated between the classes of a
     Conditional Generative Adversarial Network.
     
@@ -328,6 +356,9 @@ class MakeInterpolateSyntheticGIFCallback(MakeSyntheticGIFCallback):
             from model. Defaults to `None`.
         `num_classes`: Number of classes, leave as `None` to be parsed from model.
             Defaults to `None`.
+        `class_names`: List of name of labels, should have length equal to total
+            number of classes. Leave as `None` for generic `'class x'` names.
+            Defaults to `None`.
         `keep_noise`: Flag to feed the same latent noise to generator for the whole
             training. Defaults to `True`.
         `delete_png`: Flag to delete PNG files and folder at `filename/png` after
@@ -345,6 +376,7 @@ class MakeInterpolateSyntheticGIFCallback(MakeSyntheticGIFCallback):
                  latent_dim:Union[None, int]=None,
                  image_dim:Union[None, List[int]]=None,
                  num_classes:Union[None, int]=None,
+                 class_names:Union[None, List[str]]=None,
                  keep_noise:bool=True,
                  delete_png:bool=True,
                  duration:float=5000,
@@ -366,6 +398,9 @@ class MakeInterpolateSyntheticGIFCallback(MakeSyntheticGIFCallback):
             `image_dim`: Dimension of synthetic images, leave as `None` to be parsed
                 from model. Defaults to `None`.
             `num_classes`: Number of classes, leave as `None` to be parsed from model.
+                Defaults to `None`.
+            `class_names`: List of name of labels, should have length equal to total
+                number of classes. Leave as `None` for generic `'class x'` names.
                 Defaults to `None`.
             `keep_noise`: Flag to feed the same latent noise to generator for the whole
                 training. Defaults to `True`.
@@ -399,6 +434,7 @@ class MakeInterpolateSyntheticGIFCallback(MakeSyntheticGIFCallback):
         self.stop_classes = stop_classes
         self.num_itpl = num_itpl
         self.num_classes = num_classes
+        self.class_names = class_names
         # Reset unused inherited attributes
         self.save_freq = None
 
@@ -450,6 +486,9 @@ class MakeInterpolateSyntheticGIFCallback(MakeSyntheticGIFCallback):
         if self.num_classes is None:
             self.num_classes:int = self.model.num_classes
 
+        if self.class_names is None:
+            self.class_names = [f'Class {i}' for i in range(self.num_classes)]
+
         # Parse interpolate method, start_classes and stop_classes
         if self.itpl_method == 'linspace':
             self._interpolate = self.linspace
@@ -463,51 +502,6 @@ class MakeInterpolateSyntheticGIFCallback(MakeSyntheticGIFCallback):
 
         self.nrows = len(self.start_classes)
         self.ncols = len(self.stop_classes)
-
-    def synthesize_images(self):
-        if self.keep_noise is False:
-            batch_size = self.nrows*self.ncols
-            self.latent_noise = tf.random.normal(shape=[batch_size, self.latent_dim])
-                    
-        x_synth = self.model.generator([self.latent_noise, self.label])
-        x_synth = self.postprocess_fn(x_synth)
-        return x_synth
-
-    def make_figure(self, x_synth:tf.Tensor, ratio:float):
-        """Tile the synthetic images into a nice grid, then make and save a figure at
-        the given interpolation ratio.
-        
-        Args:
-            `x_synth`: A batch of synthetic images.
-            `epoch`: Interpolation ratio.
-        """
-        # TODO:
-        #   - Zero-padding currently only works for already normalized range.
-        #   - Label for each category (it is obvious with MNIST, but might not
-        #       for other datasets)
-        fig, ax = subplots(constrained_layout=True, figsize=(self.ncols, 0.5 + self.nrows))
-        fig.suptitle(f'{self.model.name} - Interpolation: {ratio*100:.2f}%')
-
-        # Tile images into a grid
-        x = x_synth
-        x = tf.pad(x, paddings=[[0, 0], [1, 0], [1, 0], [0, 0]], mode='CONSTANT', constant_values=1)
-        x = tf.reshape(x, shape=[self.nrows, self.ncols, *x.shape[1:]])
-        x = tf.concat(tf.unstack(x, axis=0), axis=1)
-        x = tf.concat(tf.unstack(x, axis=0), axis=1)
-        x = tf.image.crop_to_bounding_box(
-            image=x,
-            offset_height=1, offset_width=1,
-            target_height=x.shape[0]-1, target_width=x.shape[1]-1
-        )
-        ax.axis('off')
-
-        if self.image_dim[-1] == 1:
-            ax.imshow(x.numpy().squeeze(axis=-1), cmap='gray')
-        elif self.image_dim[-1] > 1:
-            ax.imshow(x.numpy())
-            
-        fig.savefig(f"{self.path_png_folder}/{self.model.name}_itpl_{ratio:.4f}.png")
-        close(fig)
 
     def precompute_inputs(self):
         super(MakeInterpolateSyntheticGIFCallback, self).precompute_inputs()
@@ -545,6 +539,34 @@ class MakeInterpolateSyntheticGIFCallback(MakeSyntheticGIFCallback):
             self.omegas = omegas
             self.sinned = sinned
             self.zeros_mask = zeros_mask
+
+    def synthesize_images(self):
+        if self.keep_noise is False:
+            batch_size = self.nrows*self.ncols
+            self.latent_noise = tf.random.normal(shape=[batch_size, self.latent_dim])
+                    
+        x_synth = self.model.generator([self.latent_noise, self.label])
+        x_synth = self.postprocess_fn(x_synth)
+        return x_synth
+
+    def modify_suptitle(self, figure:Figure, value:float):
+        figure.suptitle(f'{self.model.name} - {self.itpl_method} interpolation: {value*100:.2f}%')
+
+    def modify_axis(self, axis:Axes):
+        xticks = (self.image_dim[1] + 1)*np.arange(len(self.stop_classes)) + self.image_dim[1]/2
+        xticklabels = [self.class_names[label] for label in self.stop_classes]
+
+        yticks = (self.image_dim[0] + 1)*np.arange(len(self.start_classes)) + self.image_dim[0]/2
+        yticklabels = [self.class_names[label] for label in self.start_classes]
+        
+        axis.set_frame_on(False)
+        axis.tick_params(axis='both', length=0)
+        axis.set(
+            xlabel='Stop classes', xticks=xticks, xticklabels=xticklabels,
+            ylabel='Start classes', yticks=yticks, yticklabels=yticklabels)
+
+    def modify_savepath(self, value:float):
+        return f"{self.path_png_folder}/{self.model.name}_itpl_{value:.4f}.png"
 
     def linspace(self, start, stop, ratio:float):
         label = ((1-ratio)*start + ratio*stop)

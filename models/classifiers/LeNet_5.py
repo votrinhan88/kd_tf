@@ -144,23 +144,24 @@ class LeNet_5_ReLU_MaxPool(LeNet_5):
 if __name__ == '__main__':
     # Change path
     import os, sys
-    repo_path = os.path.abspath(os.path.join(__file__, '../..'))
+    repo_path = os.path.abspath(os.path.join(__file__, '../../..'))
     assert os.path.basename(repo_path) == 'kd_tf', "Wrong parent folder. Please change to 'kd_tf'"
     sys.path.append(repo_path)
+    
+    from dataloader import dataloader
 
-    import tensorflow_datasets as tfds
+    ds = dataloader(
+        dataset='mnist',
+        rescale=[-1, 1],
+        resize=[32, 32],
+        batch_size_train=64,
+        batch_size_test=1024
+    )
 
-    # Load data
-    ds = tfds.load('mnist', as_supervised=True)
-    def preprocess(x, y):
-        x = tf.cast(x, tf.float32)/255.
-        x = tf.image.resize(x, size=[32, 32])
-        x = (x - 0.1307)/0.3081
-        return x, y
-    ds['train'] = ds['train'].map(preprocess).shuffle(60000).batch(256).prefetch(1)
-    ds['test'] = ds['test'].map(preprocess).batch(1024).prefetch(1)
-
-    net = LeNet_5_ReLU_MaxPool(half=True)
+    net = LeNet_5(
+        input_dim=[32, 32, 1],
+        num_classes=10
+    )
     net.build()
     net.summary()
     net.compile(
@@ -171,12 +172,11 @@ if __name__ == '__main__':
     best_callback = keras.callbacks.ModelCheckpoint(
         filepath=f'./logs/{net.name}_best.h5',
         monitor='val_accuracy',
-        verbose=0,
         save_best_only=True,
         save_weights_only=True,
     )
     csv_logger = keras.callbacks.CSVLogger(
-        f'./logs/{net.name}.csv',
+        filename=f'./logs/{net.name}.csv',
         append=True
     )
 
