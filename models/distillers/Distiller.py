@@ -2,7 +2,7 @@ from typing import List
 import tensorflow as tf
 keras = tf.keras
 
-class TraditionalDistiller(keras.Model):
+class Distiller(keras.Model):
     '''Traditional knowledge distillation scheme, training the student on both the
     transfer set and the soft targets produced by a pre-trained teacher.
 
@@ -13,7 +13,7 @@ class TraditionalDistiller(keras.Model):
     Distilling the Knowledge in a Neural Network - Hinton et al. (2015)
     DOI: 10.48550/arXiv.1503.02531
     '''
-    _name = 'TraditionalDistiller'
+    _name = 'Distiller'
     def __init__(self,
                  teacher:keras.Model,
                  student:keras.Model,
@@ -159,7 +159,7 @@ if __name__ == '__main__':
     sys.path.append(repo_path)
 
     from models.classifiers.LeNet_5 import LeNet_5
-    from dataloaders import get_MNIST
+    from dataloader import dataloader
 
     # Configs
     CONFIG_PRETRAINED_BASELINE = True
@@ -219,7 +219,7 @@ if __name__ == '__main__':
         f'./logs/{student.name}_{int(ALPHA*10):02}_{TEMPERATURE:02}_student.csv',
         append=True)
 
-    distiller = TraditionalDistiller(student=student, teacher=teacher)
+    distiller = Distiller(student=student, teacher=teacher)
     distiller.compile(
         optimizer=optimizer,
         metrics=['accuracy'],

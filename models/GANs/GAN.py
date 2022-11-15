@@ -11,7 +11,7 @@ class Generator(keras.Model):
 
     https://github.com/eriklindernoren/Keras-GAN/blob/master/gan/gan.py
     """
-    _name = 'Generator'
+    _name = 'Gen'
 
     def __init__(self,
                  latent_dim:int=100,
@@ -78,7 +78,7 @@ class Discriminator(keras.Model):
 
     https://github.com/eriklindernoren/Keras-GAN/blob/master/gan/gan.py
     """    
-    _name = 'Discriminator'
+    _name = 'Disc'
     
     def __init__(self,
                  image_dim:List[int]=[28, 28, 1],
@@ -132,7 +132,7 @@ class Discriminator(keras.Model):
         })
         return config
 
-class GenerativeAdversarialNetwork(keras.Model):
+class GAN(keras.Model):
     """Generative Adversarial Networks.
     DOI: 10.48550/arXiv.1406.2661
 
@@ -162,7 +162,7 @@ class GenerativeAdversarialNetwork(keras.Model):
             `image_dim`: Dimension of synthetic image, leave as `None` to be parsed from
                 generator. Defaults to `None`.
         """
-        super(GenerativeAdversarialNetwork, self).__init__(self, name=self._name, **kwargs)
+        super(GAN, self).__init__(self, name=self._name, **kwargs)
         self.generator = generator
         self.discriminator = discriminator
 
@@ -196,7 +196,7 @@ class GenerativeAdversarialNetwork(keras.Model):
             `loss_fn`: Loss function.
                 Defaults to `keras.losses.BinaryCrossentropy()`.
         """                
-        super(GenerativeAdversarialNetwork, self).compile(**kwargs)
+        super(GAN, self).compile(**kwargs)
         self.optimizer_disc = optimizer_disc
         self.optimizer_gen = optimizer_gen
         self.loss_fn = loss_fn
@@ -217,7 +217,7 @@ class GenerativeAdversarialNetwork(keras.Model):
         return [self.accuracy_real_metric, self.accuracy_synth_metric]
     
     def build(self):
-        super(GenerativeAdversarialNetwork, self).build(input_shape=[None, self.latent_dim])
+        super(GAN, self).build(input_shape=[None, self.latent_dim])
         inputs = keras.layers.Input(shape=[self.latent_dim])
         self.call(inputs)
 
@@ -290,7 +290,7 @@ class GenerativeAdversarialNetwork(keras.Model):
         return results
 
     def get_config(self):
-        config = super(GenerativeAdversarialNetwork, self).get_config()
+        config = super(GAN, self).get_config()
         config.update({
             'generator_class':self.generator.__class__,
             'generator': self.generator.get_config(),
@@ -309,7 +309,7 @@ class GenerativeAdversarialNetwork(keras.Model):
         })
         for key in ['generator_class', 'discriminator_class']:
             config.pop(key, None)
-        return super(GenerativeAdversarialNetwork, cls).from_config(config, custom_objects)
+        return super(GAN, cls).from_config(config, custom_objects)
 
 if __name__ == '__main__':
     # Change path
@@ -334,7 +334,7 @@ if __name__ == '__main__':
     disc = Discriminator()
     disc.build()
 
-    gan = GenerativeAdversarialNetwork(generator=gen, discriminator=disc)
+    gan = GAN(generator=gen, discriminator=disc)
     gan.build()
     gan.summary(expand_nested=True)
     gan.compile()

@@ -8,10 +8,10 @@ if __name__ == '__main__':
     assert os.path.basename(repo_path) == 'kd_tf', "Wrong parent folder. Please change to 'kd_tf'"
     sys.path.append(repo_path)
 
-    from models.GANs.traditional_gan import GenerativeAdversarialNetwork
+    from models.GANs.GAN import GAN
     from models.GANs.utils import RepeatTensor
 else:
-    from .traditional_gan import GenerativeAdversarialNetwork
+    from .GAN import GAN
     from .utils import RepeatTensor
 
 from typing import List, Union
@@ -33,7 +33,7 @@ class ConditionalGeneratorEmbed(keras.Model):
         `onehot_input`: `onehot_input`: Flag to indicate whether the model receives
             one-hot or label encoded target classes. Defaults to `True`.
     """    
-    _name = 'cGenerator_embed'
+    _name = 'cGen_embed'
 
     def __init__(self,
                  latent_dim:int=100,
@@ -183,7 +183,7 @@ class ConditionalDiscriminatorEmbed(keras.Model):
         `return_logits`: flag to choose between return logits or probability.
             Defaults to `False`.
     """    
-    _name = 'cDiscriminator_embed'
+    _name = 'cDisc_embed'
     
     def __init__(self,
                  image_dim:List[int]=[28, 28, 1],
@@ -319,7 +319,7 @@ class ConditionalDiscriminatorEmbed(keras.Model):
         return config
 
 class ConditionalGeneratorStack(keras.Model):
-    _name = 'cGenerator_stack'
+    _name = 'cGen_stack'
     def __init__(self,
                  latent_dim:int=128,
                  image_dim:List[int]=[28, 28, 1],
@@ -402,7 +402,7 @@ class ConditionalGeneratorStack(keras.Model):
             super().summary(**kwargs)
 
 class ConditionalDiscriminatorStack(keras.Model):
-    _name = 'cDiscriminator_stack'
+    _name = 'cDisc_stack'
     
     def __init__(self,
                  image_dim:List[int]=[28, 28, 1],
@@ -483,7 +483,7 @@ class ConditionalDiscriminatorStack(keras.Model):
         else:
             super().summary(**kwargs)
 
-class ConditionalGenerativeAdversarialNetwork(GenerativeAdversarialNetwork):
+class CGAN(GAN):
     """Conditional Generative Adversarial Network.
     
     Args:
@@ -563,7 +563,7 @@ class ConditionalGenerativeAdversarialNetwork(GenerativeAdversarialNetwork):
                 optimizer_disc:keras.optimizers.Optimizer=keras.optimizers.Adam(learning_rate=1e-4, beta_1=0.5),
                 loss_fn:keras.losses.Loss=keras.losses.BinaryCrossentropy(),
                 **kwargs):
-        super(ConditionalGenerativeAdversarialNetwork, self).compile(
+        super(CGAN, self).compile(
             optimizer_disc = optimizer_disc,
             optimizer_gen = optimizer_gen,
             loss_fn = loss_fn,
@@ -676,118 +676,6 @@ class ConditionalGenerativeAdversarialNetwork(GenerativeAdversarialNetwork):
         else:
             super().summary(**kwargs)
 
-class ConditionalGenerativeAdversarialNetwork_keras(ConditionalGenerativeAdversarialNetwork):
-    """Runs with keras default implementation.
-    """    
-    def train_step(self, data):
-        '''
-        Notation:
-            label: correspoding to label in training set (0 to `num_classes - 1`)
-            x: images (synthetic or real)
-            y: validity of image (0 for synthetic, 1 for real)
-        '''
-        # Unpack data
-        x_real, label = data
-        batch_size:int = x_real.shape[0]
-        y_synth = tf.zeros(shape=(batch_size, 1))
-        y_real = tf.ones(shape=(batch_size, 1))
-
-        image_one_hot_labels = label[:, :, None, None]
-        image_one_hot_labels = tf.repeat(
-            image_one_hot_labels, repeats=tf.math.reduce_prod(self.image_dim[0:-1])
-        )
-        image_one_hot_labels = tf.reshape(
-            image_one_hot_labels, (-1, *self.image_dim[0:-1], self.num_classes)
-        )
-        x_real = tf.concat([x_real, image_one_hot_labels], -1)
-
-
-        # Phase 1 - Training the discriminator
-        latent_noise = tf.random.normal(shape=[batch_size, self.latent_dim])
-        random_vector_labels = tf.concat(
-            [latent_noise, label], axis=1
-        )
-
-        x_synth = self.generator(random_vector_labels)
-        x_synth = tf.concat([x_synth, image_one_hot_labels], -1)
-
-        with tf.GradientTape(persistent=True, watch_accessed_variables=False) as tape:
-            tape.watch(self.discriminator.trainable_variables)
-
-            pred_real = self.discriminator(x_real, training=True)
-            pred_synth = self.discriminator(x_synth, training=True)
-
-            loss_real = self.loss_fn(y_real, pred_real)
-            loss_synth = self.loss_fn(y_synth, pred_synth)
-        # Back-propagation
-        trainable_vars = self.discriminator.trainable_variables
-        gradients = tape.gradient(loss_real, trainable_vars)        
-        self.optimizer_disc.apply_gradients(zip(gradients, trainable_vars))
-        gradients = tape.gradient(loss_synth, trainable_vars)        
-        self.optimizer_disc.apply_gradients(zip(gradients, trainable_vars))
-        del tape
-
-        # Phase 2 - Training the generator
-        latent_noise = tf.random.normal(shape=[batch_size, self.latent_dim])
-        random_vector_labels = tf.concat(
-            [latent_noise, label], axis=1
-        )
-
-        # label_synth = tf.random.uniform(shape=[batch_size, 1], minval=0, maxval=self.num_classes-1, dtype=tf.int32)
-        with tf.GradientTape(watch_accessed_variables=False) as tape:
-            tape.watch(self.generator.trainable_variables)
-            x_synth = self.generator(random_vector_labels, training=True)
-            x_synth = tf.concat([x_synth, image_one_hot_labels], -1)
-            pred_synth = self.discriminator(x_synth, training=True)
-            loss_gen = self.loss_fn(y_real, pred_synth)
-        # Back-propagation
-        trainable_vars = self.generator.trainable_variables
-        gradients = tape.gradient(loss_gen, trainable_vars)        
-        self.optimizer_gen.apply_gradients(zip(gradients, trainable_vars))
-        del tape
-
-        # Update the metrics, configured in 'compile()'.
-        self.loss_real_metric.update_state(loss_real)
-        self.loss_synth_metric.update_state(loss_synth)
-        self.loss_gen_metric.update_state(loss_gen)
-        results = {m.name: m.result() for m in self.train_metrics}
-        return results
-
-    def test_step(self, data):
-        # Unpack data
-        x_real, label = data
-        batch_size:int = x_real.shape[0]
-        y_synth = tf.zeros(shape=(batch_size, 1))
-        y_real = tf.ones(shape=(batch_size, 1))
-
-        image_one_hot_labels = label[:, :, None, None]
-        image_one_hot_labels = tf.repeat(
-            image_one_hot_labels, repeats=tf.math.reduce_prod(self.image_dim[0:-1])
-        )
-        image_one_hot_labels = tf.reshape(
-            image_one_hot_labels, (-1, *self.image_dim[0:-1], self.num_classes)
-        )
-        x_real = tf.concat([x_real, image_one_hot_labels], -1)
-
-        # Test 1 - Discriminator performs on real data
-        pred_real = self.discriminator(x_real, training=False)
-
-        # Test 2 - Generator tries to fool discriminator
-        latent_noise = tf.random.normal(shape=[batch_size, self.latent_dim])
-        random_vector_labels = tf.concat(
-            [latent_noise, label], axis=1
-        )
-        # label_synth = tf.random.uniform(shape=[batch_size, 1], minval=0, maxval=self.num_classes-1, dtype=tf.int32)
-        x_synth = self.generator(random_vector_labels)
-        x_synth = tf.concat([x_synth, image_one_hot_labels], -1)
-        pred_synth = self.discriminator(x_synth, training=False)
-        
-        # Update the metrics, configured in 'compile()'.
-        self.accuracy_real_metric.update_state(y_true=y_real, y_pred=pred_real)
-        self.accuracy_synth_metric.update_state(y_true=y_synth, y_pred=pred_synth)
-        results = {m.name: m.result() for m in self.val_metrics}
-        return results
-
 if __name__ == '__main__':
     from models.GANs.utils import MakeConditionalSyntheticGIFCallback, MakeInterpolateSyntheticGIFCallback
     from dataloader import dataloader
@@ -819,7 +707,7 @@ if __name__ == '__main__':
     )
     cdisc.build()
     
-    cgan = ConditionalGenerativeAdversarialNetwork(
+    cgan = CGAN(
         generator=cgen, discriminator=cdisc, embed_dim=-1
     )
     cgan.build()

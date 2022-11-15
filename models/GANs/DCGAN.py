@@ -4,9 +4,9 @@ if __name__ == '__main__':
     assert os.path.basename(repo_path) == 'kd_tf', "Wrong parent folder. Please change to 'kd_tf'"
     sys.path.append(repo_path)
 
-    from models.GANs.traditional_gan import Generator, Discriminator, GenerativeAdversarialNetwork
+    from models.GANs.GAN import Generator, Discriminator, GAN
 else:
-    from .traditional_gan import Generator, Discriminator, GenerativeAdversarialNetwork
+    from .GAN import Generator, Discriminator, GAN
 
 from typing import List
 import tensorflow as tf
@@ -24,7 +24,7 @@ class DC_Generator(Generator):
     
     https://pytorch.org/tutorials/beginner/dcgan_faces_tutorial.html#generative-adversarial-networks
     """
-    _name = 'DC_Generator'
+    _name = 'DCGen'
 
     def __init__(self,
                  latent_dim:int=100,
@@ -114,7 +114,7 @@ class DC_Discriminator(Discriminator):
     
     https://pytorch.org/tutorials/beginner/dcgan_faces_tutorial.html#generative-adversarial-networks
     """    
-    _name = 'DC_Discriminator'
+    _name = 'DCDisc'
 
     def __init__(self,
                  image_dim:List[int]=[28, 28, 1],
@@ -195,7 +195,7 @@ class DC_Discriminator(Discriminator):
         })
         return config
 
-class DC_GenerativeAdversarialNetwork(GenerativeAdversarialNetwork):
+class DCGAN(GAN):
     """Unsupervised Representation Learning with Deep Convolutional Generative
     Adversarial Networks
     DOI: 10.48550/arXiv.1511.06434
@@ -217,14 +217,13 @@ class DC_GenerativeAdversarialNetwork(GenerativeAdversarialNetwork):
             `loss_fn`: Loss function.
                 Defaults to `keras.losses.BinaryCrossentropy()`.
         """                
-        super(DC_GenerativeAdversarialNetwork, self).compile(
+        super(DCGAN, self).compile(
             optimizer_disc = optimizer_disc,
             optimizer_gen = optimizer_gen,
             loss_fn = loss_fn,
             **kwargs)
 
 if __name__ == '__main__':
-    import tensorflow_datasets as tfds
     from models.GANs.utils import MakeSyntheticGIFCallback
     from dataloader import dataloader
 
@@ -241,7 +240,7 @@ if __name__ == '__main__':
     disc = DC_Discriminator(image_dim=[28, 28, 1], base_dim=[7, 7, 256])
     disc.build()
 
-    gan = DC_GenerativeAdversarialNetwork(generator=gen, discriminator=disc)
+    gan = DCGAN(generator=gen, discriminator=disc)
     gan.build()
     gan.summary(expand_nested=True)
     gan.compile()
