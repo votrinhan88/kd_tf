@@ -2,3 +2,6 @@ datasets/
 results/
 logs/
 scrap.py
+
+# pycache
+*.pyc
