@@ -170,23 +170,44 @@ class AlexNet(keras.Model):
 if __name__ == '__main__':
     # Change path
     import os, sys
-    repo_path = os.path.abspath(os.path.join(__file__, '../..'))
+    repo_path = os.path.abspath(os.path.join(__file__, '../../..'))
     assert os.path.basename(repo_path) == 'kd_tf', "Wrong parent folder. Please change to 'kd_tf'"
     sys.path.append(repo_path)
 
-    import tensorflow_datasets as tfds
-    from models.distillers.utils import add_fmap_output
+    from dataloader import dataloader
 
-    ds = tfds.load('cifar10', as_supervised=True)
-    def preprocess(x, y):
-        x = tf.cast(x, tf.float32)/255.
-        x = (x - tf.constant([[[0.4914, 0.4822, 0.4465]]]))/tf.constant([[[0.2470, 0.2435, 0.2616]]])
-        return x, y
-    ds['test'] = ds['test'].map(preprocess).batch(1024).prefetch(1)
+    ds = dataloader(
+        dataset='mnist',
+        rescale=[-1, 1],
+        batch_size_train=64,
+        batch_size_test=1024
+    )
 
-    net = AlexNet()
+    net = AlexNet(
+        input_dim=[28, 28, 1],
+        num_classes=10,
+    )
     net.build()
     net.summary(expand_nested=True)
-    net.load_weights('./pretrained/cifar10/AlexNet_8746.h5')
-    net.compile(metrics=['accuracy'])
-    net.evaluate(ds['test'])
+    net.compile(
+        metrics=['accuracy'], 
+        optimizer=keras.optimizers.Adam(learning_rate=1e-3),
+        loss=keras.losses.SparseCategoricalCrossentropy())
+
+    best_callback = keras.callbacks.ModelCheckpoint(
+        filepath=f'./logs/{net.name}_best.h5',
+        monitor='val_accuracy',
+        save_best_only=True,
+        save_weights_only=True,
+    )
+    csv_logger = keras.callbacks.CSVLogger(
+        filename=f'./logs/{net.name}.csv',
+        append=True
+    )
+
+    net.fit(
+        ds['train'],
+        epochs=10,
+        callbacks=[best_callback, csv_logger],
+        validation_data=ds['test']
+    )
