@@ -89,9 +89,9 @@ def dataloader(dataset:str,
 
     def preprocess(x, y):
         x = tf.cast(x, tf.float32)/255
-        x = (x - mean)/std
         if resize is not None:
             x = tf.image.resize(images=x, size=resize)
+        x = (x - mean)/std
         y = tf.cast(y, tf.int32)
         if onehot_label is True:
             y = tf.one_hot(indices=y, depth=num_classes)
