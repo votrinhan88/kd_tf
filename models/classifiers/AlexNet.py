@@ -3,10 +3,6 @@ from typing import List
 import tensorflow as tf
 keras = tf.keras
 
-class Identity(keras.layers.Layer):
-    def call(self, inputs):
-        return inputs
-
 class AlexNet(keras.Model):
     """ImageNet classification with deep convolutional neural networks - Krizhevsky
     et al. (2012)
@@ -55,78 +51,55 @@ class AlexNet(keras.Model):
         self.num_classes = num_classes
         self.return_logits = return_logits
         
-        # Workaround to access first layer's input (cannot access sub-module of
-        # subclassed models)
-        self.input_layer = Identity(name='input')
-        # Convolutional layers
-        self.conv_1 = keras.Sequential(
-            layers=[
-                keras.layers.Conv2D(filters=48//divisor, kernel_size=(5, 5), strides=(1, 1),
+        # Convolutional blocks
+        self.conv_1 = keras.Sequential([
+            keras.layers.Conv2D(filters=48//divisor, kernel_size=(5, 5), strides=(1, 1),
+                padding='same', bias_initializer='zeros'),
+            keras.layers.Activation(tf.nn.relu),
+            keras.layers.MaxPooling2D(pool_size=(3, 3), strides=(2, 2), padding='valid'),
+            keras.layers.BatchNormalization()
+        ])
+        self.conv_2 = keras.Sequential([
+            keras.layers.Conv2D(filters=128//divisor, kernel_size=(5, 5), strides=(1, 1),
+                padding='same', bias_initializer='ones'),
+            keras.layers.Activation(tf.nn.relu),
+            keras.layers.MaxPooling2D(pool_size=(3, 3), strides=(2, 2), padding='valid'),
+            keras.layers.BatchNormalization()
+        ])
+        self.conv_3 = keras.Sequential([
+            keras.layers.Conv2D(filters=192//divisor, kernel_size=(3, 3), strides=(1, 1),
                     padding='same', bias_initializer='zeros'),
-                keras.layers.Activation(tf.nn.relu),
-                keras.layers.MaxPooling2D(pool_size=(3, 3), strides=(2, 2), padding='valid'),
-                keras.layers.BatchNormalization()],
-            name='conv_1'
-        )
-        self.conv_2 = keras.Sequential(
-            layers=[
-                keras.layers.Conv2D(filters=128//divisor, kernel_size=(5, 5), strides=(1, 1),
+            keras.layers.Activation(tf.nn.relu),
+            keras.layers.BatchNormalization()
+        ])
+        self.conv_4 = keras.Sequential([
+            keras.layers.Conv2D(filters=192//divisor, kernel_size=(3, 3), strides=(1, 1),
                     padding='same', bias_initializer='ones'),
-                keras.layers.Activation(tf.nn.relu),
-                keras.layers.MaxPooling2D(pool_size=(3, 3), strides=(2, 2), padding='valid'),
-                keras.layers.BatchNormalization()
-            ],
-            name='conv_2'
-        )
-        self.conv_3 = keras.Sequential(
-            layers=[
-                keras.layers.Conv2D(filters=192//divisor, kernel_size=(3, 3), strides=(1, 1),
-                        padding='same', bias_initializer='zeros'),
-                keras.layers.Activation(tf.nn.relu),
-                keras.layers.BatchNormalization()
-            ],
-            name='conv_3'
-        )
-        self.conv_4 = keras.Sequential(
-            layers=[
-                keras.layers.Conv2D(filters=192//divisor, kernel_size=(3, 3), strides=(1, 1),
-                        padding='same', bias_initializer='ones'),
-                keras.layers.Activation(tf.nn.relu),
-                keras.layers.BatchNormalization()
-            ],
-            name='conv_4'
-        )
-        self.conv_5 = keras.Sequential(
-            layers=[
-                keras.layers.Conv2D(filters=128//divisor, kernel_size=(3, 3), strides=(1, 1),
-                        padding='same', bias_initializer='ones'),
-                keras.layers.Activation(tf.nn.relu),
-                keras.layers.MaxPooling2D(pool_size=(3, 3), strides=(2, 2), padding='valid'),
-                keras.layers.BatchNormalization()
-            ],
-            name='conv_5'
-        )
+            keras.layers.Activation(tf.nn.relu),
+            keras.layers.BatchNormalization()
+        ])
+        self.conv_5 = keras.Sequential([
+            keras.layers.Conv2D(filters=128//divisor, kernel_size=(3, 3), strides=(1, 1),
+                    padding='same', bias_initializer='ones'),
+            keras.layers.Activation(tf.nn.relu),
+            keras.layers.MaxPooling2D(pool_size=(3, 3), strides=(2, 2), padding='valid'),
+            keras.layers.BatchNormalization()
+        ])
 
         self.flatten = keras.layers.Flatten(name='flatten')
         # Fully-connected layers
-        self.fc_1 = keras.Sequential(
-            layers=[
-                keras.layers.Dense(512//divisor, bias_initializer='zeros'),
-                keras.layers.Activation(tf.nn.relu),
-                keras.layers.Dropout(0.5),
-                keras.layers.BatchNormalization()
-            ],
-            name='fc_1'
-        )
-        self.fc_2 = keras.Sequential(
-            layers=[
-                keras.layers.Dense(256//divisor, bias_initializer='zeros'),
-                keras.layers.Activation(tf.nn.relu),
-                keras.layers.Dropout(0.5),
-                keras.layers.BatchNormalization()
-            ],
-            name='fc_2'
-        )
+        self.fc_1 = keras.Sequential([
+            keras.layers.Dense(512//divisor, bias_initializer='zeros'),
+            keras.layers.Activation(tf.nn.relu),
+            keras.layers.Dropout(0.5),
+            keras.layers.BatchNormalization()
+        ])
+        self.fc_2 = keras.Sequential([
+            keras.layers.Dense(256//divisor, bias_initializer='zeros'),
+            keras.layers.Activation(tf.nn.relu),
+            keras.layers.Dropout(0.5),
+            keras.layers.BatchNormalization()
+        ])
         
         if self.return_logits is False:
             if self.num_classes == 1:
@@ -137,15 +110,15 @@ class AlexNet(keras.Model):
             self.logits = keras.layers.Dense(units=self.num_classes, name='logits')
     
     def call(self, inputs, training:bool=False):
-        x = self.input_layer(inputs)
-        x = self.conv_1(x, training=training)
-        x = self.conv_2(x, )
-        x = self.conv_3(x)
-        x = self.conv_4(x)
-        x = self.conv_5(x)
+        # x = self.input_layer(inputs)
+        x = self.conv_1(inputs, training=training)
+        x = self.conv_2(x, training=training)
+        x = self.conv_3(x, training=training)
+        x = self.conv_4(x, training=training)
+        x = self.conv_5(x, training=training)
         x = self.flatten(x)
-        x = self.fc_1(x)
-        x = self.fc_2(x)
+        x = self.fc_1(x, training=training)
+        x = self.fc_2(x, training=training)
         if self.return_logits is False:
             x = self.pred(x)
         elif self.return_logits is True:
@@ -154,8 +127,16 @@ class AlexNet(keras.Model):
 
     def build(self):
         super().build(input_shape=[None, *self.input_dim])
+
+    def summary(self, with_graph:bool=False, **kwargs):
         inputs = keras.layers.Input(shape=self.input_dim)
-        self.call(inputs)
+        outputs = self.call(inputs)
+
+        if with_graph is True:
+            dummy_model = keras.Model(inputs=inputs, outputs=outputs, name=self.name)
+            dummy_model.summary(**kwargs)
+        else:
+            super().summary(**kwargs)
 
     def get_config(self):
         config = super().get_config()
@@ -188,7 +169,7 @@ if __name__ == '__main__':
         num_classes=10,
     )
     net.build()
-    net.summary(expand_nested=True)
+    net.summary(with_graph=True, expand_nested=True, line_length=120)
     net.compile(
         metrics=['accuracy'], 
         optimizer=keras.optimizers.Adam(learning_rate=1e-3),

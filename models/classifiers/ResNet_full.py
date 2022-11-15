@@ -3,12 +3,15 @@ from typing import List, Literal
 import tensorflow as tf
 keras = tf.keras
 
-class Identity(keras.layers.Layer):
-    def call(self, inputs):
-        return inputs
+if __name__ == '__main__':
+    import os, sys
+    repo_path = os.path.abspath(os.path.join(__file__, '../../..'))
+    assert os.path.basename(repo_path) == 'kd_tf', "Wrong parent folder. Please change to 'kd_tf'"
+    sys.path.append(repo_path)
 
-    def compute_output_shape(self, input_shape):
-        return input_shape
+    from models.classifiers.utils import Identity
+else:
+    from .utils import Identity
 
 class ResidualBasicBlock(keras.Model):
     def __init__(self,
@@ -36,17 +39,19 @@ class ResidualBasicBlock(keras.Model):
         ])
 
         if self.strides == 1:
-            self.skip_layers = keras.Sequential([Identity()])
+            self.skip_layers = Identity()
         elif self.strides > 1:
             self.skip_layers = keras.Sequential([
                 keras.layers.Conv2D(filters=self.filters, kernel_size=1, strides=self.strides, padding='same', use_bias=False),
                 keras.layers.BatchNormalization()
             ])
 
-    def call(self, inputs):
-        main_x = self.main_layers(inputs)
-        skip_x = self.skip_layers(inputs)
-        x = keras.layers.Activation(self.activation)(main_x + skip_x)
+        self.connect = keras.layers.Activation(self.activation)
+
+    def call(self, inputs, training:bool=False):
+        main_x = self.main_layers(inputs, training=training)
+        skip_x = self.skip_layers(inputs, training=training)
+        x = self.connect(main_x + skip_x)
         return x
 
 class ResidualBottleneck(keras.Model):
@@ -82,10 +87,12 @@ class ResidualBottleneck(keras.Model):
                 keras.layers.BatchNormalization()
             ])
 
-    def call(self, inputs):
-        main_x = self.main_layers(inputs)
-        skip_x = self.skip_layers(inputs)
-        x = keras.layers.Activation(self.activation)(main_x + skip_x)
+        self.connect = keras.layers.Activation(self.activation)
+
+    def call(self, inputs, training:bool=False):
+        main_x = self.main_layers(inputs, training=training)
+        skip_x = self.skip_layers(inputs, training=training)
+        x = self.connect(main_x + skip_x)
         return x
 
 class ResidualLayer(keras.Model):
@@ -126,8 +133,8 @@ class ResidualLayer(keras.Model):
             self.blocks.append(Block(strides=1, **res_unit_params))
         self.blocks = keras.Sequential(self.blocks)
         
-    def call(self, inputs):
-        x = self.blocks(inputs)
+    def call(self, inputs, training:bool=False):
+        x = self.blocks(inputs, training=training)
         return x
 
 class ResNet(keras.Model):
@@ -152,19 +159,15 @@ class ResNet(keras.Model):
                  input_dim:List[int]=[32, 32, 3],
                  num_classes:int=10,
                  return_logits:bool=False,
-                 *args, **kwargs):
+                 **kwargs):
         assert ver in [18, 34, 50, 101, 152], f'`ver` must be of [18, 34, 50, 101, 152].'
         assert isinstance(return_logits, bool), '`return_logits` must be of type bool.'
 
-        super().__init__(name=f'{self._name}-{ver}', *args, **kwargs)
+        super().__init__(name=f'{self._name}-{ver}', **kwargs)
         self.ver = ver
         self.input_dim = input_dim
         self.num_classes = num_classes
         self.return_logits = return_logits
-
-        # Workaround to access first layer's input (cannot access sub-module of
-        # subclassed models)
-        self.input_layer = Identity(name='input')
 
         self.conv_1 = keras.Sequential(
             layers=[
@@ -190,13 +193,12 @@ class ResNet(keras.Model):
         elif self.return_logits is True:
             self.logits = keras.layers.Dense(units=self.num_classes, name='logits')
 
-    def call(self, inputs):
-        x = self.input_layer(inputs)
-        x = self.conv_1(x)
-        x = self.conv_2(x)
-        x = self.conv_3(x)
-        x = self.conv_4(x)
-        x = self.conv_5(x)
+    def call(self, inputs, training:bool=False):
+        x = self.conv_1(inputs, training=training)
+        x = self.conv_2(x, training=training)
+        x = self.conv_3(x, training=training)
+        x = self.conv_4(x, training=training)
+        x = self.conv_5(x, training=training)
         x = self.glb_pool(x)
         if self.return_logits is False:
             x = self.pred(x)
@@ -206,8 +208,16 @@ class ResNet(keras.Model):
 
     def build(self):
         super().build(input_shape=[None, *self.input_dim])
+    
+    def summary(self, with_graph:bool=False, **kwargs):
         inputs = keras.layers.Input(shape=self.input_dim)
-        self.call(inputs)
+        outputs = self.call(inputs)
+
+        if with_graph is True:
+            dummy_model = keras.Model(inputs=inputs, outputs=outputs, name=self.name)
+            dummy_model.summary(**kwargs)
+        else:
+            super().summary(**kwargs)
 
     def get_config(self):
         return {
@@ -217,17 +227,11 @@ class ResNet(keras.Model):
             'return_logits': self.return_logits,
         }
 
-    @classmethod
-    def from_config(cls, config):
-        return cls(**config)
-
 if __name__ == '__main__':
-    # net = ResNet(ver=18, input_dim=[256, 256, 3], num_classes=1000)
-    # net.build()
-    # net.summary()
+    net = ResNet(ver=18, input_dim=[256, 256, 3], num_classes=1000)
+    net.build()
+    net.summary(with_graph=True, expand_nested=True, line_length=120)
 
     net = ResNet(ver=50, input_dim=[256, 256, 3], num_classes=1000)
     net.build()
-    net.summary()
-
-    print()
+    net.summary(with_graph=True, expand_nested=True, line_length=120)
