@@ -8,6 +8,7 @@ keras = tf.keras
 from matplotlib.pyplot import subplots, close
 import PIL
 
+# TODO: custom image label on ax.xticks
 class MakeSyntheticGIFCallback(keras.callbacks.Callback):
     """Callback to generate synthetic images, typically used with a Generative
     Adversarial Network.
@@ -181,6 +182,7 @@ class MakeSyntheticGIFCallback(keras.callbacks.Callback):
         fig.savefig(f"{self.path_png_folder}/{self.model.name}_epoch_{epoch:04d}.png")
         close(fig)
 
+# TODO: custom image label on ax.xticks
 class MakeConditionalSyntheticGIFCallback(MakeSyntheticGIFCallback):
     """Callback to generate synthetic images, typically used with a Conditional
     Generative Adversarial Network.
@@ -304,6 +306,7 @@ class MakeConditionalSyntheticGIFCallback(MakeSyntheticGIFCallback):
         x_synth = self.postprocess_fn(x_synth)
         return x_synth
 
+# TODO: custom image label on ax.xticks
 class MakeInterpolateSyntheticGIFCallback(MakeSyntheticGIFCallback):
     # TODO: Spherical linear interpolation
     """Callback to generate synthetic images, interpolated between the classes of a

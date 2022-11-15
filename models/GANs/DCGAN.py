@@ -1,3 +1,7 @@
+from typing import List
+import tensorflow as tf
+keras = tf.keras
+
 if __name__ == '__main__':
     import os, sys
     repo_path = os.path.abspath(os.path.join(__file__, '../../..'))
@@ -7,10 +11,6 @@ if __name__ == '__main__':
     from models.GANs.GAN import Generator, Discriminator, GAN
 else:
     from .GAN import Generator, Discriminator, GAN
-
-from typing import List
-import tensorflow as tf
-keras = tf.keras
 
 class DC_Generator(Generator):
     """Generator for DCGAN.
