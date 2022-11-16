@@ -294,7 +294,7 @@ class MakeConditionalSyntheticGIFCallback(MakeSyntheticGIFCallback):
             self.num_classes:int = self.model.num_classes
 
         if self.class_names is None:
-            self.class_names = [{f'Class {i}' for i in range(self.num_classes)}]
+            self.class_names = [f'Class {i}' for i in range(self.num_classes)]
 
         if self.onehot_input is None:
             self.onehot_input:bool = self.model.onehot_input
