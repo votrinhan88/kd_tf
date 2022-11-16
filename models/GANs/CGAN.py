@@ -722,7 +722,8 @@ if __name__ == '__main__':
     
     gif_maker = MakeConditionalSyntheticGIFCallback(
         filename=f'./logs/{cgan.name}_{cgan.generator.name}_{cgan.discriminator.name}.gif', 
-        postprocess_fn=lambda x:(x+1)/2
+        postprocess_fn=lambda x:(x+1)/2,
+        class_names=class_names
     )
     interpolater = MakeInterpolateSyntheticGIFCallback(
         filename=f'./logs/{cgan.name}_{cgan.generator.name}_{cgan.discriminator.name}_itpl.gif', 
