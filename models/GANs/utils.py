@@ -94,7 +94,8 @@ class MakeSyntheticGIFCallback(keras.callbacks.Callback):
 
     def on_epoch_end(self, epoch, logs=None):
         x_synth = self.synthesize_images()
-        self.make_figure(x_synth, epoch)
+        if epoch % self.save_freq > 0:
+            self.make_figure(x_synth, epoch)
         return super().on_epoch_end(epoch, logs)
 
     def on_train_end(self, logs=None):
@@ -155,9 +156,6 @@ class MakeSyntheticGIFCallback(keras.callbacks.Callback):
             `x_synth`: A batch of synthetic images.
             `epoch`: Current epoch.
         """
-        if epoch % self.save_freq > 0:
-            return
-
         fig, ax = plt.subplots(constrained_layout=True, figsize=(self.ncols, 0.5 + self.nrows))
         self.modify_suptitle(figure=fig, value=epoch)
 
