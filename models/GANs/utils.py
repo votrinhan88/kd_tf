@@ -433,6 +433,7 @@ class MakeInterpolateSyntheticGIFCallback(MakeSyntheticGIFCallback):
         self.stop_classes = stop_classes
         self.num_itpl = num_itpl
         self.num_classes = num_classes
+        self.class_names = class_names
         # Reset unused inherited attributes
         self.save_freq = None
 
@@ -483,6 +484,9 @@ class MakeInterpolateSyntheticGIFCallback(MakeSyntheticGIFCallback):
 
         if self.num_classes is None:
             self.num_classes:int = self.model.num_classes
+            
+        if self.class_names is None:
+            self.class_names = [f'Class {i}' for i in range(self.num_classes)]
 
         # Parse interpolate method, start_classes and stop_classes
         if self.itpl_method == 'linspace':
