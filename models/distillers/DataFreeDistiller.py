@@ -1,5 +1,5 @@
 import warnings
-from typing import List, Union, Tuple
+from typing import List, Union
 import tensorflow as tf
 keras = tf.keras
 
@@ -110,6 +110,7 @@ class DataFreeGenerator(keras.Model):
         return config
 
 # TODO: update `train_batch_exact`
+# Don't use attributes latent_dim and image_dim directly from generator in later calls
 class DataFreeDistiller(keras.Model):
     """A knowledge distillation scheme performed without the training set and
     architecture information of the teacher model, utilizing a generator
