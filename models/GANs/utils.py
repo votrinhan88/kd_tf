@@ -148,7 +148,7 @@ class MakeSyntheticGIFCallback(keras.callbacks.Callback):
         x_synth = self.postprocess_fn(x_synth)
         return x_synth
 
-    def make_figure(self, x_synth:tf.Tensor, epoch:int):
+    def make_figure(self, x_synth:tf.Tensor, value:Union[int, float]):
         """Tile the synthetic images into a nice grid, then make and save a figure at
         the given epoch.
         
@@ -157,7 +157,7 @@ class MakeSyntheticGIFCallback(keras.callbacks.Callback):
             `epoch`: Current epoch.
         """
         fig, ax = plt.subplots(constrained_layout=True, figsize=(self.ncols, 0.5 + self.nrows))
-        self.modify_suptitle(figure=fig, value=epoch)
+        self.modify_suptitle(fig, value)
 
         # Tile images into a grid
         x = x_synth
@@ -179,14 +179,17 @@ class MakeSyntheticGIFCallback(keras.callbacks.Callback):
         elif self.image_dim[-1] > 1:
             ax.imshow(x)
 
-        fig.savefig(f"{self.path_png_folder}/{self.model.name}_epoch_{epoch:04d}.png")
+        fig.savefig(self.modify_savepath(value))
         plt.close(fig)
 
-    def modify_suptitle(self, figure:Figure, value:Union[int, float]):
-        figure.suptitle(f'{self.model.name} - Epoch {value}')
+    def modify_suptitle(self, figure:Figure, epoch:int):
+        figure.suptitle(f'{self.model.name} - Epoch {epoch}')
 
     def modify_axis(self, axis:Axes):
         axis.axis('off')
+
+    def modify_savepath(self, epoch:int):
+        return f"{self.path_png_folder}/{self.model.name}_epoch_{epoch:04d}.png"
 
 class MakeConditionalSyntheticGIFCallback(MakeSyntheticGIFCallback):
     """Callback to generate synthetic images, typically used with a Conditional
@@ -330,9 +333,7 @@ class MakeConditionalSyntheticGIFCallback(MakeSyntheticGIFCallback):
         axis.tick_params(axis='both', length=0)
         axis.set(yticks=[], xticks=xticks, xticklabels=xticklabels)
 
-# TODO: custom image label on ax.xticks
 class MakeInterpolateSyntheticGIFCallback(MakeSyntheticGIFCallback):
-    # TODO: Spherical linear interpolation
     """Callback to generate synthetic images, interpolated between the classes of a
     Conditional Generative Adversarial Network.
     
@@ -484,7 +485,7 @@ class MakeInterpolateSyntheticGIFCallback(MakeSyntheticGIFCallback):
 
         if self.num_classes is None:
             self.num_classes:int = self.model.num_classes
-            
+
         if self.class_names is None:
             self.class_names = [f'Class {i}' for i in range(self.num_classes)]
 
@@ -501,31 +502,6 @@ class MakeInterpolateSyntheticGIFCallback(MakeSyntheticGIFCallback):
 
         self.nrows = len(self.start_classes)
         self.ncols = len(self.stop_classes)
-
-    def synthesize_images(self):
-        if self.keep_noise is False:
-            batch_size = self.nrows*self.ncols
-            self.latent_noise = tf.random.normal(shape=[batch_size, self.latent_dim])
-                    
-        x_synth = self.model.generator([self.latent_noise, self.label])
-        x_synth = self.postprocess_fn(x_synth)
-        return x_synth
-
-    def modify_suptitle(self, figure:Figure, value:Union[int, float]):
-        figure.suptitle(f'{self.model.name} - {self.itpl_method} interpolation: {value*100:.2f}%')
-
-    def modify_axis(self, axis:Axes):
-        xticks = (self.image_dim[1] + 1)*np.arange(len(self.stop_classes)) + self.image_dim[1]/2
-        xticklabels = [self.class_names[label] for label in self.stop_classes]
-
-        yticks = (self.image_dim[1] + 1)*np.arange(len(self.start_classes)) + self.image_dim[1]/2
-        yticklabels = [self.class_names[label] for label in self.start_classes]
-        
-        axis.set_frame_on(False)
-        axis.tick_params(axis='both', length=0)
-        axis.set(
-            xlabel='Stop classes', xticks=xticks, xticklabels=xticklabels,
-            ylabel='Start classes', yticks=xticks, yticklabels=yticklabels)
 
     def precompute_inputs(self):
         super(MakeInterpolateSyntheticGIFCallback, self).precompute_inputs()
@@ -563,6 +539,34 @@ class MakeInterpolateSyntheticGIFCallback(MakeSyntheticGIFCallback):
             self.omegas = omegas
             self.sinned = sinned
             self.zeros_mask = zeros_mask
+
+    def synthesize_images(self):
+        if self.keep_noise is False:
+            batch_size = self.nrows*self.ncols
+            self.latent_noise = tf.random.normal(shape=[batch_size, self.latent_dim])
+                    
+        x_synth = self.model.generator([self.latent_noise, self.label])
+        x_synth = self.postprocess_fn(x_synth)
+        return x_synth
+
+    def modify_suptitle(self, figure:Figure, ratio:float):
+        figure.suptitle(f'{self.model.name} - {self.itpl_method} interpolation: {ratio*100:.2f}%')
+
+    def modify_axis(self, axis:Axes):
+        xticks = (self.image_dim[1] + 1)*np.arange(len(self.stop_classes)) + self.image_dim[1]/2
+        xticklabels = [self.class_names[label] for label in self.stop_classes]
+
+        yticks = (self.image_dim[0] + 1)*np.arange(len(self.start_classes)) + self.image_dim[0]/2
+        yticklabels = [self.class_names[label] for label in self.start_classes]
+        
+        axis.set_frame_on(False)
+        axis.tick_params(axis='both', length=0)
+        axis.set(
+            xlabel='Stop classes', xticks=xticks, xticklabels=xticklabels,
+            ylabel='Start classes', yticks=yticks, yticklabels=yticklabels)
+
+    def modify_savepath(self, ratio:float):
+        return f"{self.path_png_folder}/{self.model.name}_itpl_{ratio:.4f}.png"
 
     def linspace(self, start, stop, ratio:float):
         label = ((1-ratio)*start + ratio*stop)
