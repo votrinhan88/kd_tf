@@ -174,7 +174,7 @@ class MakeSyntheticGIFCallback(keras.callbacks.Callback):
         )
         x = x.numpy()
 
-        self.modify_axis(axis=ax, on=False)
+        self.modify_axis(axis=ax)
 
         if self.image_dim[-1] == 1:
             ax.imshow(x.squeeze(axis=-1), cmap='gray')
