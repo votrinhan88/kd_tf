@@ -94,7 +94,7 @@ class MakeSyntheticGIFCallback(keras.callbacks.Callback):
 
     def on_epoch_end(self, epoch, logs=None):
         x_synth = self.synthesize_images()
-        if epoch % self.save_freq > 0:
+        if epoch % self.save_freq == 0:
             self.make_figure(x_synth, epoch)
         return super().on_epoch_end(epoch, logs)
 
@@ -157,7 +157,7 @@ class MakeSyntheticGIFCallback(keras.callbacks.Callback):
             `epoch`: Current epoch.
         """
         fig, ax = plt.subplots(constrained_layout=True, figsize=(self.ncols, 0.5 + self.nrows))
-        self.modify_suptitle(fig, value)
+        self.modify_suptitle(figure=fig, value=value)
 
         # Tile images into a grid
         x = x_synth
@@ -179,17 +179,17 @@ class MakeSyntheticGIFCallback(keras.callbacks.Callback):
         elif self.image_dim[-1] > 1:
             ax.imshow(x)
 
-        fig.savefig(self.modify_savepath(value))
+        fig.savefig(self.modify_savepath(value=value))
         plt.close(fig)
 
-    def modify_suptitle(self, figure:Figure, epoch:int):
-        figure.suptitle(f'{self.model.name} - Epoch {epoch}')
+    def modify_suptitle(self, figure:Figure, value:int):
+        figure.suptitle(f'{self.model.name} - Epoch {value}')
 
     def modify_axis(self, axis:Axes):
         axis.axis('off')
 
-    def modify_savepath(self, epoch:int):
-        return f"{self.path_png_folder}/{self.model.name}_epoch_{epoch:04d}.png"
+    def modify_savepath(self, value:int):
+        return f"{self.path_png_folder}/{self.model.name}_epoch_{value:04d}.png"
 
 class MakeConditionalSyntheticGIFCallback(MakeSyntheticGIFCallback):
     """Callback to generate synthetic images, typically used with a Conditional
@@ -549,8 +549,8 @@ class MakeInterpolateSyntheticGIFCallback(MakeSyntheticGIFCallback):
         x_synth = self.postprocess_fn(x_synth)
         return x_synth
 
-    def modify_suptitle(self, figure:Figure, ratio:float):
-        figure.suptitle(f'{self.model.name} - {self.itpl_method} interpolation: {ratio*100:.2f}%')
+    def modify_suptitle(self, figure:Figure, value:float):
+        figure.suptitle(f'{self.model.name} - {self.itpl_method} interpolation: {value*100:.2f}%')
 
     def modify_axis(self, axis:Axes):
         xticks = (self.image_dim[1] + 1)*np.arange(len(self.stop_classes)) + self.image_dim[1]/2
@@ -565,8 +565,8 @@ class MakeInterpolateSyntheticGIFCallback(MakeSyntheticGIFCallback):
             xlabel='Stop classes', xticks=xticks, xticklabels=xticklabels,
             ylabel='Start classes', yticks=yticks, yticklabels=yticklabels)
 
-    def modify_savepath(self, ratio:float):
-        return f"{self.path_png_folder}/{self.model.name}_itpl_{ratio:.4f}.png"
+    def modify_savepath(self, value:float):
+        return f"{self.path_png_folder}/{self.model.name}_itpl_{value:.4f}.png"
 
     def linspace(self, start, stop, ratio:float):
         label = ((1-ratio)*start + ratio*stop)
