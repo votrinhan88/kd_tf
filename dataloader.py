@@ -47,6 +47,7 @@ def compute_mean_std(dataset:str) -> Tuple[List[float], List[float]]:
     return mean, std
 
 def dataloader(dataset:str,
+               resize:Union[None, Tuple[float, float]]=None,
                rescale:Union[Literal['standardization'], Tuple[float, float]]=(0, 1),
                batch_size_train:int=128,
                batch_size_test:int=1024,
@@ -57,6 +58,8 @@ def dataloader(dataset:str,
     
     Args:
         `dataset`: Name of dataset.
+        `resize`: Resizing dimension. Leave as `None` to skip resizing.
+            Defaults to `None`.
         `rescale`: Rescaling method. Pass `'standardization'` to rescale to mean of
             0 and standard deviation of 1; or pass a tuple `(min, max)` to rescale
             to the range within [min, max].  Defaults to `(0, 1)`.
@@ -86,6 +89,8 @@ def dataloader(dataset:str,
 
     def preprocess(x, y):
         x = tf.cast(x, tf.float32)/255
+        if resize is not None:
+            x = tf.image.resize(images=x, size=resize)
         x = (x - mean)/std
         y = tf.cast(y, tf.int32)
         if onehot_label is True:

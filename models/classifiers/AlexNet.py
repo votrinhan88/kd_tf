@@ -3,10 +3,6 @@ from typing import List
 import tensorflow as tf
 keras = tf.keras
 
-class Identity(keras.layers.Layer):
-    def call(self, inputs):
-        return inputs
-
 class AlexNet(keras.Model):
     """ImageNet classification with deep convolutional neural networks - Krizhevsky
     et al. (2012)
@@ -55,78 +51,55 @@ class AlexNet(keras.Model):
         self.num_classes = num_classes
         self.return_logits = return_logits
         
-        # Workaround to access first layer's input (cannot access sub-module of
-        # subclassed models)
-        self.input_layer = Identity(name='input')
-        # Convolutional layers
-        self.conv_1 = keras.Sequential(
-            layers=[
-                keras.layers.Conv2D(filters=48//divisor, kernel_size=(5, 5), strides=(1, 1),
+        # Convolutional blocks
+        self.conv_1 = keras.Sequential([
+            keras.layers.Conv2D(filters=48//divisor, kernel_size=(5, 5), strides=(1, 1),
+                padding='same', bias_initializer='zeros'),
+            keras.layers.Activation(tf.nn.relu),
+            keras.layers.MaxPooling2D(pool_size=(3, 3), strides=(2, 2), padding='valid'),
+            keras.layers.BatchNormalization()
+        ])
+        self.conv_2 = keras.Sequential([
+            keras.layers.Conv2D(filters=128//divisor, kernel_size=(5, 5), strides=(1, 1),
+                padding='same', bias_initializer='ones'),
+            keras.layers.Activation(tf.nn.relu),
+            keras.layers.MaxPooling2D(pool_size=(3, 3), strides=(2, 2), padding='valid'),
+            keras.layers.BatchNormalization()
+        ])
+        self.conv_3 = keras.Sequential([
+            keras.layers.Conv2D(filters=192//divisor, kernel_size=(3, 3), strides=(1, 1),
                     padding='same', bias_initializer='zeros'),
-                keras.layers.Activation(tf.nn.relu),
-                keras.layers.MaxPooling2D(pool_size=(3, 3), strides=(2, 2), padding='valid'),
-                keras.layers.BatchNormalization()],
-            name='conv_1'
-        )
-        self.conv_2 = keras.Sequential(
-            layers=[
-                keras.layers.Conv2D(filters=128//divisor, kernel_size=(5, 5), strides=(1, 1),
+            keras.layers.Activation(tf.nn.relu),
+            keras.layers.BatchNormalization()
+        ])
+        self.conv_4 = keras.Sequential([
+            keras.layers.Conv2D(filters=192//divisor, kernel_size=(3, 3), strides=(1, 1),
                     padding='same', bias_initializer='ones'),
-                keras.layers.Activation(tf.nn.relu),
-                keras.layers.MaxPooling2D(pool_size=(3, 3), strides=(2, 2), padding='valid'),
-                keras.layers.BatchNormalization()
-            ],
-            name='conv_2'
-        )
-        self.conv_3 = keras.Sequential(
-            layers=[
-                keras.layers.Conv2D(filters=192//divisor, kernel_size=(3, 3), strides=(1, 1),
-                        padding='same', bias_initializer='zeros'),
-                keras.layers.Activation(tf.nn.relu),
-                keras.layers.BatchNormalization()
-            ],
-            name='conv_3'
-        )
-        self.conv_4 = keras.Sequential(
-            layers=[
-                keras.layers.Conv2D(filters=192//divisor, kernel_size=(3, 3), strides=(1, 1),
-                        padding='same', bias_initializer='ones'),
-                keras.layers.Activation(tf.nn.relu),
-                keras.layers.BatchNormalization()
-            ],
-            name='conv_4'
-        )
-        self.conv_5 = keras.Sequential(
-            layers=[
-                keras.layers.Conv2D(filters=128//divisor, kernel_size=(3, 3), strides=(1, 1),
-                        padding='same', bias_initializer='ones'),
-                keras.layers.Activation(tf.nn.relu),
-                keras.layers.MaxPooling2D(pool_size=(3, 3), strides=(2, 2), padding='valid'),
-                keras.layers.BatchNormalization()
-            ],
-            name='conv_5'
-        )
+            keras.layers.Activation(tf.nn.relu),
+            keras.layers.BatchNormalization()
+        ])
+        self.conv_5 = keras.Sequential([
+            keras.layers.Conv2D(filters=128//divisor, kernel_size=(3, 3), strides=(1, 1),
+                    padding='same', bias_initializer='ones'),
+            keras.layers.Activation(tf.nn.relu),
+            keras.layers.MaxPooling2D(pool_size=(3, 3), strides=(2, 2), padding='valid'),
+            keras.layers.BatchNormalization()
+        ])
 
         self.flatten = keras.layers.Flatten(name='flatten')
         # Fully-connected layers
-        self.fc_1 = keras.Sequential(
-            layers=[
-                keras.layers.Dense(512//divisor, bias_initializer='zeros'),
-                keras.layers.Activation(tf.nn.relu),
-                keras.layers.Dropout(0.5),
-                keras.layers.BatchNormalization()
-            ],
-            name='fc_1'
-        )
-        self.fc_2 = keras.Sequential(
-            layers=[
-                keras.layers.Dense(256//divisor, bias_initializer='zeros'),
-                keras.layers.Activation(tf.nn.relu),
-                keras.layers.Dropout(0.5),
-                keras.layers.BatchNormalization()
-            ],
-            name='fc_2'
-        )
+        self.fc_1 = keras.Sequential([
+            keras.layers.Dense(512//divisor, bias_initializer='zeros'),
+            keras.layers.Activation(tf.nn.relu),
+            keras.layers.Dropout(0.5),
+            keras.layers.BatchNormalization()
+        ])
+        self.fc_2 = keras.Sequential([
+            keras.layers.Dense(256//divisor, bias_initializer='zeros'),
+            keras.layers.Activation(tf.nn.relu),
+            keras.layers.Dropout(0.5),
+            keras.layers.BatchNormalization()
+        ])
         
         if self.return_logits is False:
             if self.num_classes == 1:
@@ -137,15 +110,15 @@ class AlexNet(keras.Model):
             self.logits = keras.layers.Dense(units=self.num_classes, name='logits')
     
     def call(self, inputs, training:bool=False):
-        x = self.input_layer(inputs)
-        x = self.conv_1(x, training=training)
-        x = self.conv_2(x, )
-        x = self.conv_3(x)
-        x = self.conv_4(x)
-        x = self.conv_5(x)
+        # x = self.input_layer(inputs)
+        x = self.conv_1(inputs, training=training)
+        x = self.conv_2(x, training=training)
+        x = self.conv_3(x, training=training)
+        x = self.conv_4(x, training=training)
+        x = self.conv_5(x, training=training)
         x = self.flatten(x)
-        x = self.fc_1(x)
-        x = self.fc_2(x)
+        x = self.fc_1(x, training=training)
+        x = self.fc_2(x, training=training)
         if self.return_logits is False:
             x = self.pred(x)
         elif self.return_logits is True:
@@ -154,8 +127,16 @@ class AlexNet(keras.Model):
 
     def build(self):
         super().build(input_shape=[None, *self.input_dim])
+
+    def summary(self, with_graph:bool=False, **kwargs):
         inputs = keras.layers.Input(shape=self.input_dim)
-        self.call(inputs)
+        outputs = self.call(inputs)
+
+        if with_graph is True:
+            dummy_model = keras.Model(inputs=inputs, outputs=outputs, name=self.name)
+            dummy_model.summary(**kwargs)
+        else:
+            super().summary(**kwargs)
 
     def get_config(self):
         config = super().get_config()
@@ -170,23 +151,44 @@ class AlexNet(keras.Model):
 if __name__ == '__main__':
     # Change path
     import os, sys
-    repo_path = os.path.abspath(os.path.join(__file__, '../..'))
+    repo_path = os.path.abspath(os.path.join(__file__, '../../..'))
     assert os.path.basename(repo_path) == 'kd_tf', "Wrong parent folder. Please change to 'kd_tf'"
     sys.path.append(repo_path)
 
-    import tensorflow_datasets as tfds
-    from models.distillers.utils import add_fmap_output
+    from dataloader import dataloader
 
-    ds = tfds.load('cifar10', as_supervised=True)
-    def preprocess(x, y):
-        x = tf.cast(x, tf.float32)/255.
-        x = (x - tf.constant([[[0.4914, 0.4822, 0.4465]]]))/tf.constant([[[0.2470, 0.2435, 0.2616]]])
-        return x, y
-    ds['test'] = ds['test'].map(preprocess).batch(1024).prefetch(1)
+    ds = dataloader(
+        dataset='mnist',
+        rescale=[-1, 1],
+        batch_size_train=64,
+        batch_size_test=1024
+    )
 
-    net = AlexNet()
+    net = AlexNet(
+        input_dim=[28, 28, 1],
+        num_classes=10,
+    )
     net.build()
-    net.summary(expand_nested=True)
-    net.load_weights('./pretrained/cifar10/AlexNet_8746.h5')
-    net.compile(metrics=['accuracy'])
-    net.evaluate(ds['test'])
+    net.summary(with_graph=True, expand_nested=True, line_length=120)
+    net.compile(
+        metrics=['accuracy'], 
+        optimizer=keras.optimizers.Adam(learning_rate=1e-3),
+        loss=keras.losses.SparseCategoricalCrossentropy())
+
+    best_callback = keras.callbacks.ModelCheckpoint(
+        filepath=f'./logs/{net.name}_best.h5',
+        monitor='val_accuracy',
+        save_best_only=True,
+        save_weights_only=True,
+    )
+    csv_logger = keras.callbacks.CSVLogger(
+        filename=f'./logs/{net.name}.csv',
+        append=True
+    )
+
+    net.fit(
+        ds['train'],
+        epochs=10,
+        callbacks=[best_callback, csv_logger],
+        validation_data=ds['test']
+    )
