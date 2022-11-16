@@ -680,13 +680,15 @@ if __name__ == '__main__':
     from models.GANs.utils import MakeConditionalSyntheticGIFCallback, MakeInterpolateSyntheticGIFCallback
     from dataloader import dataloader
 
-    ds = dataloader(
+    ds, info = dataloader(
         dataset='mnist',
         rescale=[-1, 1],
         batch_size_train=64,
         batch_size_test=1000,
         drop_remainder=True,
-        onehot_label=True)
+        onehot_label=True,
+        with_info=True)
+    class_names = info.features['label'].names
 
     cgen = ConditionalGeneratorEmbed(
         latent_dim=100,
@@ -724,12 +726,14 @@ if __name__ == '__main__':
     )
     interpolater = MakeInterpolateSyntheticGIFCallback(
         filename=f'./logs/{cgan.name}_{cgan.generator.name}_{cgan.discriminator.name}_itpl.gif', 
-        postprocess_fn=lambda x:(x+1)/2
+        postprocess_fn=lambda x:(x+1)/2,
+        class_names=class_names
     )
     slerper = MakeInterpolateSyntheticGIFCallback(
         filename=f'./logs/{cgan.name}_{cgan.generator.name}_{cgan.discriminator.name}_itpl_slerp.gif',
         itpl_method='slerp',
-        postprocess_fn=lambda x:(x+1)/2
+        postprocess_fn=lambda x:(x+1)/2,
+        class_names=class_names
     )
     cgan.fit(
         x=ds['train'],
