@@ -578,7 +578,7 @@ class CGAN(GAN):
         '''
         # Unpack data
         x_real, label = data
-        batch_size:int = x_real.shape[0]
+        batch_size = tf.shape(x_real)[0]
         y_synth = tf.zeros(shape=(batch_size, 1))
         y_real = tf.ones(shape=(batch_size, 1))
 
