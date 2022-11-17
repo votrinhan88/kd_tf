@@ -36,7 +36,7 @@ class ConditionalDataFreeGenerator(DataFreeGenerator):
         self.onehot_input = onehot_input
         self.dafl_batchnorm = dafl_batchnorm
 
-        self._INIT_DIM = [self.image_dim[0]//4, self.image_dim[1]//4]
+        self._BASE_DIM = [self.image_dim[0]//4, self.image_dim[1]//4]
         if self.dafl_batchnorm is True:
             self._EPSILONS = [1e-5, 0.8, 0.8, 1e-5]
             self._MOMENTUM = 0.9
@@ -44,8 +44,31 @@ class ConditionalDataFreeGenerator(DataFreeGenerator):
             self._EPSILONS = [keras.layers.BatchNormalization().epsilon]*4 # 1e-3
             self._MOMENTUM = keras.layers.BatchNormalization().momentum # 0.99
 
-        self.dense = keras.layers.Dense(units=self._INIT_DIM[0] * self._INIT_DIM[1] * 128)
-        self.reshape = keras.layers.Reshape(target_shape=(self._INIT_DIM[0], self._INIT_DIM[1], 128))
+        # Latent branch, converted from DAFL's generator
+        self.latent_branch = keras.Sequential([
+            keras.layers.Dense(units=self._BASE_DIM[0] * self._BASE_DIM[1] * 128),
+            keras.layers.Reshape(target_shape=(self._BASE_DIM[0], self._BASE_DIM[1], 128)),
+            keras.layers.BatchNormalization(),
+            keras.layers.ReLU()
+        ])
+
+        # Conditional label branch
+        if self.onehot_input is False:
+            self.cate_encode = keras.layers.CategoryEncoding(num_tokens=self.num_classes, output_mode='one_hot')
+        self.label_branch = keras.Sequential([
+            keras.layers.Dense(units=self.embed_dim),
+            keras.layers.Dense(units=tf.math.reduce_prod(self.base_dim[0:-1]), use_bias=False),
+            keras.layers.Reshape(target_shape=(*self.base_dim[0:-1], 1)),
+            keras.layers.BatchNormalization(),
+            keras.layers.ReLU()
+        ])
+
+        # Main branch: concat both branches and upsample
+        if self.onehot_input is False:
+            self.cate_encode = keras.layers.CategoryEncoding(num_tokens=self.num_classes, output_mode='one_hot')
+        self.concat = keras.layers.Concatenate()
+
+        
         self.conv_block_0 = keras.Sequential(
             layers=[keras.layers.BatchNormalization(momentum=self._MOMENTUM, epsilon=self._EPSILONS[0])],
             name='conv_block_0'
@@ -73,6 +96,21 @@ class ConditionalDataFreeGenerator(DataFreeGenerator):
             name='conv_block_2'
         )
 
+    def call(self, inputs, training:bool=False):
+        # Parse inputs
+        latents, labels = inputs
+        # Forward
+        latents = self.latent_branch(latents, training=training)
+        if self.onehot_input is False:
+            labels = self.cate_encode(labels)
+        labels = self.label_branch(labels)
+        x = self.concat([latents, labels])
+        x = self.conv_block_0(x, training=training)
+        x = self.upsamp_1(x)
+        x = self.conv_block_1(x, training=training)
+        x = self.upsamp_2(x)
+        x = self.conv_block_2(x, training=training)
+        return x
         
 
 class CDAFL(DataFreeDistiller):

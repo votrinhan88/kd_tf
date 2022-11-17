@@ -10,7 +10,7 @@ Here is a summary of the best practices for designing performant TensorFlow inpu
 
 Augmentation snippets (put inside preprocess):
 # First pad, then crop
-x = tf.image.pad_to_bounding_box(x, offset_height=2, offset_width=2, target_height=36, target_width=36)
+x = tf.pad(tensor=x, paddings=[[0, 0], [2, 2], [2, 2], [0, 0]], mode='SYMMETRIC')
 x = tf.image.random_crop(value=x, size=[tf.shape(x)[0], 32, 32, 3])
 x = tf.image.random_flip_left_right(image=x)
 """

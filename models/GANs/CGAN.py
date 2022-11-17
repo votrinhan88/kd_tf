@@ -134,7 +134,7 @@ class ConditionalGeneratorEmbed(keras.Model):
         latents = self.latent_branch(latents, training=training)
         if self.onehot_input is False:
             labels = self.cate_encode(labels)
-        labels = self.label_branch(labels)
+        labels = self.label_branch(labels, training=training)
         x = self.concat([latents, labels])
         for block in self.convt_block:
             x = block(x, training=training)
@@ -283,7 +283,7 @@ class ConditionalDiscriminatorEmbed(keras.Model):
         # Forward
         if self.onehot_input is False:
             labels = self.cate_encode(labels)
-        labels = self.label_branch(labels)
+        labels = self.label_branch(labels, training=training)
         x = self.concat([images, labels])
         for block in self.conv_block:
             x = block(x, training=training)
