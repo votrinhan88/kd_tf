@@ -9,8 +9,9 @@ Here is a summary of the best practices for designing performant TensorFlow inpu
   - Reduce memory usage when applying the interleave, prefetch, and shuffle transformations
 
 Augmentation snippets (put inside preprocess):
-x = tf.image.random_crop(value=x, size=[tf.shape(x)[0], 28, 28, 3])
-x = tf.image.pad_to_bounding_box(x, offset_height=2, offset_width=2, target_height=32, target_width=32)
+# First pad, then crop
+x = tf.image.pad_to_bounding_box(x, offset_height=2, offset_width=2, target_height=36, target_width=36)
+x = tf.image.random_crop(value=x, size=[tf.shape(x)[0], 32, 32, 3])
 x = tf.image.random_flip_left_right(image=x)
 """
 
