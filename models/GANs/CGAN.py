@@ -94,10 +94,12 @@ class ConditionalGeneratorEmbed(keras.Model):
             #     input_length=1),
             keras.layers.Dense(units=self.embed_dim),
             keras.layers.Dense(units=tf.math.reduce_prod(self.base_dim[0:-1])),
-            keras.layers.Reshape(target_shape=(*self.base_dim[0:-1], 1))
+            keras.layers.Reshape(target_shape=(*self.base_dim[0:-1], 1)),
+            keras.layers.BatchNormalization(),
+            keras.layers.ReLU()
         ])
 
-        # Main branch: concat both branches and upsample twice to 28*28
+        # Main branch: concat both branches and upsample
         if self.onehot_input is False:
             self.cate_encode = keras.layers.CategoryEncoding(num_tokens=self.num_classes, output_mode='one_hot')
         self.concat = keras.layers.Concatenate()
@@ -128,7 +130,7 @@ class ConditionalGeneratorEmbed(keras.Model):
         # Parse inputs
         latents, labels = inputs
         # Forward
-        latents = self.latent_branch(latents)
+        latents = self.latent_branch(latents, training=training)
         if self.onehot_input is False:
             labels = self.cate_encode(labels)
         labels = self.label_branch(labels)
@@ -237,7 +239,9 @@ class ConditionalDiscriminatorEmbed(keras.Model):
             #     input_length=1),
             keras.layers.Dense(units=self.embed_dim),
             keras.layers.Dense(units=self.image_dim[0]*self.image_dim[1]),
-            keras.layers.Reshape(target_shape=(self.image_dim[0], self.image_dim[1], 1))
+            keras.layers.Reshape(target_shape=(self.image_dim[0], self.image_dim[1], 1)),
+            keras.layers.BatchNormalization(),
+            keras.layers.ReLU()
         ])
 
         self.concat = keras.layers.Concatenate()
