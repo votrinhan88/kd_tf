@@ -32,3 +32,8 @@
 ### Tensorflow
 #### Subclassed models
 - Summary with full output shape: [StackOverflow discussion](https://stackoverflow.com/questions/55235212/model-summary-cant-print-output-shape-while-using-subclass-model)
+
+## 4. Others FAQs
+- Augmentation or normalization first?
+    - In general, data augmentation should always come first. Otherwise, the normalized features may be incorrect after augmentation operators are applied. After all, you can think of augmentation as gathering additional data. The normalization computed on your original dataset may not be valid after gathering additional data. [Data Science Stack Exchange discussion](https://datascience.stackexchange.com/questions/86356/first-perform-data-augmentation-or-normalization)
+

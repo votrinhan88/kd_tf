@@ -14,7 +14,7 @@ x = tf.image.pad_to_bounding_box(x, offset_height=2, offset_width=2, target_heig
 x = tf.image.random_flip_left_right(image=x)
 """
 
-from typing import Literal, Tuple, Union, List
+from typing import Literal, Tuple, Union, List, Callable, Any
 
 import tensorflow as tf
 import tensorflow_datasets as tfds
@@ -47,6 +47,7 @@ def compute_mean_std(dataset:str) -> Tuple[List[float], List[float]]:
     return mean, std
 
 def dataloader(dataset:str,
+               augmentation_fn:Union[None, Callable[[Any], Any]]=None,
                resize:Union[None, Tuple[float, float]]=None,
                rescale:Union[Literal['standardization'], Tuple[float, float]]=(0, 1),
                batch_size_train:int=128,
@@ -87,8 +88,12 @@ def dataloader(dataset:str,
     ds, info = tfds.load(dataset, as_supervised=True, with_info=True, data_dir='./datasets')
     num_classes = info.features['label'].num_classes
 
+    if augmentation_fn is None:
+        augmentation_fn = lambda x:x
+
     def preprocess(x, y):
         x = tf.cast(x, tf.float32)/255
+        x = augmentation_fn(x)
         if resize is not None:
             x = tf.image.resize(images=x, size=resize)
         x = (x - mean)/std
