@@ -93,7 +93,8 @@ class ConditionalGeneratorEmbed(keras.Model):
             #     output_dim=self.embed_dim,
             #     input_length=1),
             keras.layers.Dense(units=self.embed_dim),
-            keras.layers.Dense(units=tf.math.reduce_prod(self.base_dim[0:-1])),
+            # keras.layers.Dense(units=tf.math.reduce_prod(self.base_dim[0:-1])),
+            keras.layers.Dense(units=tf.math.reduce_prod(self.base_dim[0:-1]), use_bias=False),
             keras.layers.Reshape(target_shape=(*self.base_dim[0:-1], 1)),
             keras.layers.BatchNormalization(),
             keras.layers.ReLU()
@@ -238,7 +239,8 @@ class ConditionalDiscriminatorEmbed(keras.Model):
             #     output_dim=self.embed_dim,
             #     input_length=1),
             keras.layers.Dense(units=self.embed_dim),
-            keras.layers.Dense(units=self.image_dim[0]*self.image_dim[1]),
+            # keras.layers.Dense(units=self.image_dim[0]*self.image_dim[1]),
+            keras.layers.Dense(units=self.image_dim[0]*self.image_dim[1], use_bias=False),
             keras.layers.Reshape(target_shape=(self.image_dim[0], self.image_dim[1], 1)),
             keras.layers.BatchNormalization(),
             keras.layers.ReLU()
