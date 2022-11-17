@@ -18,6 +18,11 @@ from typing import List, Union
 import tensorflow as tf
 keras = tf.keras
 
+# TODO:
+#   - Build ConditionalGeneratorEmbed as base class, inherit to Stack version
+#       - Update get_config()
+#   - Same thing for the discriminators
+#   - Is there any methods unfinished in CGAN? Update them too.
 class ConditionalGeneratorEmbed(keras.Model):
     """Conditional generator for cGAN. Conditional inputs is fed through an
     embedding layer and concatenated with shallow feature maps.

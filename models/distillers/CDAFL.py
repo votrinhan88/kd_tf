@@ -103,7 +103,7 @@ class ConditionalDataFreeGenerator(DataFreeGenerator):
         latents = self.latent_branch(latents, training=training)
         if self.onehot_input is False:
             labels = self.cate_encode(labels)
-        labels = self.label_branch(labels)
+        labels = self.label_branch(labels, training=training)
         x = self.concat([latents, labels])
         x = self.conv_block_0(x, training=training)
         x = self.upsamp_1(x)
@@ -111,7 +111,39 @@ class ConditionalDataFreeGenerator(DataFreeGenerator):
         x = self.upsamp_2(x)
         x = self.conv_block_2(x, training=training)
         return x
-        
+    
+    def build(self):
+        if self.onehot_input is True:
+            keras.Model.build(self, input_shape=[[None, self.latent_dim], [None, self.num_classes]])
+        elif self.onehot_input is False:
+            keras.Model.build(self, input_shape=[[None, self.latent_dim], [None, 1]])
+
+    def summary(self, with_graph:bool=False, **kwargs):
+        latent_inputs = keras.layers.Input(shape=[self.latent_dim])
+        if self.onehot_input is True:
+            label_inputs = keras.layers.Input(shape=[self.num_classes])
+        elif self.onehot_input is False:
+            label_inputs = keras.layers.Input(shape=[1])
+        inputs = [latent_inputs, label_inputs]
+        outputs = self.call(inputs)
+
+        if with_graph is True:
+            dummy_model = keras.Model(inputs=inputs, outputs=outputs, name=self.name)
+            dummy_model.summary(**kwargs)
+        else:
+            super().summary(**kwargs)
+
+    def get_config(self):
+        config = super().get_config()
+        config.update({
+            'latent_dim': self.latent_dim,
+            'image_dim': self.image_dim,
+            'embed_dim': self.embed_dim,
+            'num_classes': self.num_classes,
+            'onehot_input': self.onehot_input,
+            'dafl_batchnorm': self.dafl_batchnorm,            
+        })
+        return config
 
 class CDAFL(DataFreeDistiller):
     """Actually does not need to write from scratch a new class, only needs to write a
