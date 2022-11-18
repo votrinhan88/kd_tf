@@ -9,26 +9,26 @@ if __name__ == '__main__':
     assert os.path.basename(repo_path) == 'kd_tf', "Wrong parent folder. Please change to 'kd_tf'"
     sys.path.append(repo_path)
 
-    from models.distillers.DataFreeDistiller import DataFreeDistiller
+    from models.distillers.DataFreeDistiller import DataFreeDistiller, DataFreeGenerator
 else:
     from .DataFreeDistiller import DataFreeDistiller, DataFreeGenerator
 
 class ConditionalDataFreeGenerator(DataFreeGenerator):
     """Review GAN to CGAN to modify.
     """
-    pass
-
+    _name = 'CDAFL_Gen'
     def __init__(self,
                  latent_dim:int=100,
                  image_dim:List[int]=[32, 32, 3],
                  embed_dim:int=50,
                  num_classes:int=10,
                  onehot_input:bool=True,
-                 dafl_batchnorm:bool=True):
+                 dafl_batchnorm:bool=True,
+                 **kwargs):
         assert isinstance(dafl_batchnorm, bool), '`dafl_batchnorm` must be of type bool'
         assert isinstance(onehot_input, bool), '`onehot_input` must be of type bool.'
 
-        keras.Model.__init__()
+        keras.Model.__init__(self, name=self._name, **kwargs)
         self.latent_dim = latent_dim
         self.image_dim = image_dim
         self.embed_dim = embed_dim
@@ -46,9 +46,8 @@ class ConditionalDataFreeGenerator(DataFreeGenerator):
 
         # Latent branch, converted from DAFL's generator
         self.latent_branch = keras.Sequential([
-            keras.layers.Dense(units=self._BASE_DIM[0] * self._BASE_DIM[1] * 128),
-            keras.layers.Reshape(target_shape=(self._BASE_DIM[0], self._BASE_DIM[1], 128)),
-            keras.layers.BatchNormalization(),
+            keras.layers.Dense(units=tf.math.reduce_prod(self._BASE_DIM)*128, use_bias=False),
+            keras.layers.Reshape(target_shape=[*self._BASE_DIM, 128]),
             keras.layers.ReLU()
         ])
 
@@ -57,10 +56,10 @@ class ConditionalDataFreeGenerator(DataFreeGenerator):
             self.cate_encode = keras.layers.CategoryEncoding(num_tokens=self.num_classes, output_mode='one_hot')
         self.label_branch = keras.Sequential([
             keras.layers.Dense(units=self.embed_dim),
-            keras.layers.Dense(units=tf.math.reduce_prod(self.base_dim[0:-1]), use_bias=False),
-            keras.layers.Reshape(target_shape=(*self.base_dim[0:-1], 1)),
-            keras.layers.BatchNormalization(),
-            keras.layers.ReLU()
+            keras.layers.ReLU(),
+            keras.layers.Dense(units=tf.math.reduce_prod(self._BASE_DIM)),
+            keras.layers.Reshape(target_shape=(*self._BASE_DIM, 1)),
+            keras.layers.ReLU(),
         ])
 
         # Main branch: concat both branches and upsample
@@ -68,7 +67,6 @@ class ConditionalDataFreeGenerator(DataFreeGenerator):
             self.cate_encode = keras.layers.CategoryEncoding(num_tokens=self.num_classes, output_mode='one_hot')
         self.concat = keras.layers.Concatenate()
 
-        
         self.conv_block_0 = keras.Sequential(
             layers=[keras.layers.BatchNormalization(momentum=self._MOMENTUM, epsilon=self._EPSILONS[0])],
             name='conv_block_0'
@@ -100,10 +98,10 @@ class ConditionalDataFreeGenerator(DataFreeGenerator):
         # Parse inputs
         latents, labels = inputs
         # Forward
-        latents = self.latent_branch(latents, training=training)
+        latents = self.latent_branch(latents)
         if self.onehot_input is False:
             labels = self.cate_encode(labels)
-        labels = self.label_branch(labels, training=training)
+        labels = self.label_branch(labels)
         x = self.concat([latents, labels])
         x = self.conv_block_0(x, training=training)
         x = self.upsamp_1(x)
@@ -172,3 +170,15 @@ class CDAFL(DataFreeDistiller):
         loss_distill = self.distill_loss_fn(teacher_prob, student_prob)
     """
     pass
+
+if __name__ == '__main__':
+    cgen = ConditionalDataFreeGenerator(
+        latent_dim=100,
+        image_dim=[28, 28, 1],
+        embed_dim=50,
+        num_classes=10,
+        onehot_input=True,
+        dafl_batchnorm=True
+    )
+    cgen.build()
+    cgen.summary(with_graph=True, line_length=120, expand_nested=True)

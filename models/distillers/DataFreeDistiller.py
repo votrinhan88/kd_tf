@@ -96,9 +96,17 @@ class DataFreeGenerator(keras.Model):
         return x
 
     def build(self):
-        super().build(input_shape=[None, self.latent_dim])
+        super(DataFreeGenerator, self).build(input_shape=[None, self.latent_dim])
+
+    def summary(self, with_graph:bool=False, **kwargs):
         inputs = keras.layers.Input(shape=[self.latent_dim])
-        self.call(inputs)
+        outputs = self.call(inputs)
+
+        if with_graph is True:
+            dummy_model = keras.Model(inputs=inputs, outputs=outputs, name=self.name)
+            dummy_model.summary(**kwargs)
+        else:
+            super().summary(**kwargs)
 
     def get_config(self):
         config = super().get_config()

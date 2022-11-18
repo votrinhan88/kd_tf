@@ -83,7 +83,6 @@ class ConditionalGeneratorEmbed(keras.Model):
         self.latent_branch = keras.Sequential([
             keras.layers.Dense(units=tf.math.reduce_prod(self.base_dim), use_bias=False),
             keras.layers.Reshape(target_shape=self.base_dim),
-            # keras.layers.BatchNormalization(),
             keras.layers.ReLU()
         ])
 
@@ -93,11 +92,9 @@ class ConditionalGeneratorEmbed(keras.Model):
         # Replace Embedding with Dense for to accept interpolated label inputs
         self.label_branch = keras.Sequential([
             keras.layers.Dense(units=self.embed_dim),
-            # keras.layers.BatchNormalization(),
             keras.layers.ReLU(),
             keras.layers.Dense(units=tf.math.reduce_prod(self.base_dim[0:-1])),
             keras.layers.Reshape(target_shape=(*self.base_dim[0:-1], 1)),
-            # keras.layers.BatchNormalization(),
             keras.layers.ReLU(),
         ])
 
