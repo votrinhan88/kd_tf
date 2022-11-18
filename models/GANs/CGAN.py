@@ -90,19 +90,15 @@ class ConditionalGeneratorEmbed(keras.Model):
         # Conditional label branch
         if self.onehot_input is False:
             self.cate_encode = keras.layers.CategoryEncoding(num_tokens=self.num_classes, output_mode='one_hot')
-        # Replace Embedding with Dense for compatibility with interpolated
-        # label inputs
+        # Replace Embedding with Dense for to accept interpolated label inputs
         self.label_branch = keras.Sequential([
-            # keras.layers.Embedding(
-            #     input_dim=self.num_classes,
-            #     output_dim=self.embed_dim,
-            #     input_length=1),
             keras.layers.Dense(units=self.embed_dim),
-            # keras.layers.Dense(units=tf.math.reduce_prod(self.base_dim[0:-1])),
-            keras.layers.Dense(units=tf.math.reduce_prod(self.base_dim[0:-1]), use_bias=False),
+            keras.layers.BatchNormalization(),
+            keras.layers.ReLU(),
+            keras.layers.Dense(units=tf.math.reduce_prod(self.base_dim[0:-1])),
             keras.layers.Reshape(target_shape=(*self.base_dim[0:-1], 1)),
             keras.layers.BatchNormalization(),
-            keras.layers.ReLU()
+            keras.layers.ReLU(),
         ])
 
         # Main branch: concat both branches and upsample
@@ -236,19 +232,13 @@ class ConditionalDiscriminatorEmbed(keras.Model):
         # Conditional label branch
         if self.onehot_input is False:
             self.cate_encode = keras.layers.CategoryEncoding(num_tokens=self.num_classes, output_mode='one_hot')
-        # Replace Embedding with Dense for compatibility with interpolated
-        # label inputs
+        # Replace Embedding with Dense for to accept interpolated label inputs
         self.label_branch = keras.Sequential([
-            # keras.layers.Embedding(
-            #     input_dim=self.num_classes,
-            #     output_dim=self.embed_dim,
-            #     input_length=1),
             keras.layers.Dense(units=self.embed_dim),
-            # keras.layers.Dense(units=self.image_dim[0]*self.image_dim[1]),
-            keras.layers.Dense(units=self.image_dim[0]*self.image_dim[1], use_bias=False),
+            keras.layers.LeakyReLU(alpha=0.2),
+            keras.layers.Dense(units=self.image_dim[0]*self.image_dim[1]),
             keras.layers.Reshape(target_shape=(self.image_dim[0], self.image_dim[1], 1)),
-            keras.layers.BatchNormalization(),
-            keras.layers.ReLU()
+            keras.layers.LeakyReLU(alpha=0.2),
         ])
 
         self.concat = keras.layers.Concatenate()
@@ -288,7 +278,7 @@ class ConditionalDiscriminatorEmbed(keras.Model):
         # Forward
         if self.onehot_input is False:
             labels = self.cate_encode(labels)
-        labels = self.label_branch(labels, training=training)
+        labels = self.label_branch(labels)
         x = self.concat([images, labels])
         for block in self.conv_block:
             x = block(x, training=training)
@@ -324,8 +314,11 @@ class ConditionalDiscriminatorEmbed(keras.Model):
         config = super().get_config()
         config.update({
             'image_dim': self.image_dim,
+            'base_dim': self.base_dim,
             'embed_dim': self.embed_dim,
-            'num_classes': self.num_classes
+            'num_classes': self.num_classes,
+            'onehot_input': self.onehot_input,
+            'return_logits': self.return_logits,
         })
         return config
 
