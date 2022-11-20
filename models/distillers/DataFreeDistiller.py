@@ -849,77 +849,102 @@ if __name__ == '__main__':
     BATCH_SIZE = 512
     NUM_EPOCHS = 200
 
-    # Experiment 4.1: Classification result on the MNIST dataset
-    #                                       LeNet-5        HintonNets
-    # Teacher:                              LeNet-5        Hinton-784-1200-1200-10
-    # Student/Baseline:                     LeNet-5-HALF   Hinton-784-800-800-10
-    # Teacher:                              98.91%         98.39%
-    # Baseline:                             98.65%         98.11%
-    # Traditional KD:                       98.91%         98.39%
-    # KD with randomly generated noise:     88.01%         87.58%
-    # KD with meta-data KD:                 92.47%         91.24%
-    # KD with alternative dataset USPS:     94.56%         93.99%
-    # Data-free KD:                         98.20%         97.91%    
-    ds = dataloader(
-        dataset='mnist',
-        resize=[32, 32],
-        # rescale='standardization',
-        rescale=[-1, 1],
-        batch_size_test=1024
-    )
+    def run_experiment_mnist(pretrained_teacher:bool=False):
+        # Experiment 4.1: Classification result on the MNIST dataset
+        #                                       LeNet-5        HintonNets
+        # Teacher:                              LeNet-5        Hinton-784-1200-1200-10
+        # Student/Baseline:                     LeNet-5-HALF   Hinton-784-800-800-10
+        # Teacher:                              98.91%         98.39%
+        # Baseline:                             98.65%         98.11%
+        # Traditional KD:                       98.91%         98.39%
+        # KD with randomly generated noise:     88.01%         87.58%
+        # KD with meta-data KD:                 92.47%         91.24%
+        # KD with alternative dataset USPS:     94.56%         93.99%
+        # Data-free KD:                         98.20%         97.91%    
 
-    # Pretrained teacher: 99.08%
-    teacher = LeNet_5_ReLU_MaxPool()
-    teacher.build()
-    teacher.load_weights('./pretrained/mnist/LeNet-5_ReLU_MaxPool_9908.h5')
-    teacher.compile(metrics='accuracy')
-    teacher.evaluate(ds['test'])
-    teacher = add_fmap_output(model=teacher, fmap_layer='flatten')
+        ds = dataloader(
+            dataset='mnist',
+            resize=[32, 32],
+            rescale='standardization',
+            batch_size_train=256,
+            batch_size_test=1024
+        )
 
-    # Student (LeNet-5-HALF)
-    student = LeNet_5_ReLU_MaxPool(half=True)
-    student.build()
-    student.compile(metrics='accuracy')
-    student.evaluate(ds['test'])
+        # Pretrained teacher
+        teacher = LeNet_5_ReLU_MaxPool()
+        teacher.compile(
+            metrics=['accuracy'], 
+            optimizer=keras.optimizers.Adam(learning_rate=1e-3),
+            loss=keras.losses.SparseCategoricalCrossentropy())
+        teacher.build()
+        if pretrained_teacher is True:
+            teacher.load_weights('./pretrained/mnist/LeNet-5_ReLU_MaxPool_9908.h5')
+        elif pretrained_teacher is False:
+            best_callback = keras.callbacks.ModelCheckpoint(
+                filepath=f'./logs/{teacher.name}_best.h5',
+                monitor='val_accuracy',
+                save_best_only=True,
+                save_weights_only=True,
+            )
+            csv_logger = keras.callbacks.CSVLogger(
+                filename=f'./logs/{teacher.name}.csv',
+                append=True
+            )
+            teacher.fit(
+                ds['train'],
+                epochs=10,
+                callbacks=[best_callback, csv_logger],
+                shuffle=True,
+                validation_data=ds['test']
+            )
+            teacher.load_weights(filepath=f'./logs/{teacher.name}_best.h5')
+        teacher.evaluate(ds['test'])
+        teacher = add_fmap_output(model=teacher, fmap_layer='flatten')
 
-    generator = DataFreeGenerator(latent_dim=[100], image_dim=[32, 32, 1])
-    generator.build()
+        # Student (LeNet-5-HALF)
+        student = LeNet_5_ReLU_MaxPool(half=True)
+        student.build()
+        student.compile(metrics='accuracy')
+        student.evaluate(ds['test'])
 
-    # Train one student with default data-free learning settings
-    distiller = DataFreeDistiller(
-        teacher=teacher, student=student, generator=generator)
-    distiller.compile(
-        optimizer_student=keras.optimizers.Adam(learning_rate=2e-3, epsilon=1e-8),
-        optimizer_generator=keras.optimizers.Adam(learning_rate=0.2, epsilon=1e-8),
-        onehot_loss_fn=True,
-        activation_loss_fn=True,
-        info_entropy_loss_fn=True,
-        distill_loss_fn=keras.losses.KLDivergence(),
-        student_loss_fn=keras.losses.SparseCategoricalCrossentropy(),
-        batch_size=512,
-        num_batches=120,
-        alpha=0.1,
-        beta=5,
-        confidence=None
-    )
+        generator = DataFreeGenerator(latent_dim=[100], image_dim=[32, 32, 1])
+        generator.build()
 
-    csv_logger = CSVLogger_custom(
-        filename=f'./logs/{distiller.name}_{student.name}.csv',
-        append=True
-    )
-    gif_maker = MakeSyntheticGIFCallback(
-        filename=f'./logs/{distiller.name}_{student.name}.gif',
-        nrows=5, ncols=5,
-        postprocess_fn=lambda x:(x+1)/2
-    )
+        # Train one student with default data-free learning settings
+        distiller = DataFreeDistiller(
+            teacher=teacher, student=student, generator=generator)
+        distiller.compile(
+            optimizer_student=keras.optimizers.Adam(learning_rate=2e-3, epsilon=1e-8),
+            optimizer_generator=keras.optimizers.Adam(learning_rate=0.2, epsilon=1e-8),
+            onehot_loss_fn=True,
+            activation_loss_fn=True,
+            info_entropy_loss_fn=True,
+            distill_loss_fn=keras.losses.KLDivergence(),
+            student_loss_fn=keras.losses.SparseCategoricalCrossentropy(),
+            batch_size=512,
+            num_batches=120,
+            alpha=0.1,
+            beta=5,
+            confidence=None
+        )
 
-    distiller.fit(
-        epochs=0,
-        callbacks=[csv_logger],
-        verbose=1,
-        shuffle=True,
-        validation_data=ds['test']
-    )
+        csv_logger = CSVLogger_custom(
+            filename=f'./logs/{distiller.name}_{student.name}_mnist.csv',
+            append=True
+        )
+        gif_maker = MakeSyntheticGIFCallback(
+            filename=f'./logs/{distiller.name}_{student.name}_mnist.gif',
+            nrows=5, ncols=5,
+            postprocess_fn=lambda x:(x+1)/2
+        )
+
+        distiller.fit(
+            epochs=20,
+            callbacks=[csv_logger, gif_maker],
+            shuffle=True,
+            validation_data=ds['test']
+        )
+
     # Experiment 4.1 extended: Data-free learning on MNIST, with confidence.
     # Train multiple student using data-free learning across a range of
     # confidence thresholds
