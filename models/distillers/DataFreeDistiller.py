@@ -861,6 +861,7 @@ if __name__ == '__main__':
         # KD with meta-data KD:                 92.47%         91.24%
         # KD with alternative dataset USPS:     94.56%         93.99%
         # Data-free KD:                         98.20%         97.91%    
+        print('Experiment 4.1: Classification result on the MNIST dataset'.center(80,'#'))
 
         ds = dataloader(
             dataset='mnist',
@@ -985,3 +986,5 @@ if __name__ == '__main__':
     #     shuffle=True,
     #     validation_data=ds['test']
     # )
+
+    run_experiment_mnist()
