@@ -909,7 +909,7 @@ if __name__ == '__main__':
         student.compile(metrics='accuracy')
         student.evaluate(ds['test'])
 
-        generator = DataFreeGenerator(latent_dim=[100], image_dim=[32, 32, 1])
+        generator = DataFreeGenerator(latent_dim=100, image_dim=[32, 32, 1])
         generator.build()
 
         # Train one student with default data-free learning settings
