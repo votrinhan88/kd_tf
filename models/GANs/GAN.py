@@ -218,7 +218,16 @@ class GAN(keras.Model):
     
     def build(self):
         super(GAN, self).build(input_shape=[None, self.latent_dim])
+    
+    def summary(self, with_graph:bool=False, **kwargs):
         inputs = keras.layers.Input(shape=[self.latent_dim])
+        outputs = self.call(inputs)
+
+        if with_graph is True:
+            dummy_model = keras.Model(inputs=inputs, outputs=outputs, name=self.name)
+            dummy_model.summary(**kwargs)
+        else:
+            super().summary(**kwargs)
         self.call(inputs)
 
     def train_step(self, data):
@@ -340,10 +349,11 @@ if __name__ == '__main__':
     gan.compile()
 
     csv_logger = keras.callbacks.CSVLogger(
-        f'./logs/{gan.name}_{gan.generator.name}_{gan.discriminator.name}.csv',
+        filename=f'./logs/{gan.name}_{gan.generator.name}_{gan.discriminator.name}.csv',
         append=True
     )
     gif_maker = MakeSyntheticGIFCallback(
+        filename=f'./logs/{gan.name}_{gan.generator.name}_{gan.discriminator.name}.gif',
         nrows=5, ncols=5,
         postprocess_fn=lambda x:(x+1)/2
     )
