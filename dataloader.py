@@ -126,10 +126,13 @@ def dataloader(dataset:str,
 if __name__ == '__main__':
     import time
 
-    for dataset in ['mnist', 'fashion_mnist', 'cifar10', 'cifar100']:
-        ds, info = dataloader(dataset, rescale=[-1, 1], batch_size_train=256, drop_remainder=False, with_info=True)
-        start = time.time()
-        for i in range(100):
-            next(iter(ds['train']))
-        end = time.time()
-        print(dataset, end - start)
+    def test_load_time():
+        for dataset in ['mnist', 'fashion_mnist', 'cifar10', 'cifar100']:
+            ds, info = dataloader(dataset, rescale=[-1, 1], batch_size_train=256, drop_remainder=False, with_info=True)
+            start = time.time()
+            for i in range(100):
+                next(iter(ds['train']))
+            end = time.time()
+            print(dataset, end - start)
+    
+    test_load_time()

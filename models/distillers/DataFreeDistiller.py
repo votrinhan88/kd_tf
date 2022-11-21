@@ -185,7 +185,6 @@ class DataFreeDistiller(keras.Model):
                 num_batches:int=120,
                 alpha:float=0.1,
                 beta:float=5,
-                # temperature:float=1,
                 confidence:float=None,
                 **kwargs):
         """Compile distiller.
@@ -284,11 +283,11 @@ class DataFreeDistiller(keras.Model):
         )
 
         # Metrics
-        self.loss_onehot_metric = keras.metrics.Mean(name='loss_onehot')
-        self.loss_activation_metric = keras.metrics.Mean(name='loss_activation')
-        self.loss_info_entropy_metric = keras.metrics.Mean(name='loss_info_entropy')
-        self.loss_generator_metric = keras.metrics.Mean(name='loss_generator')
-        self.loss_distill_metric = keras.metrics.Mean(name='loss_distill')
+        self.loss_onehot_metric = keras.metrics.Mean(name='loss_oh')
+        self.loss_activation_metric = keras.metrics.Mean(name='loss_ac')
+        self.loss_info_entropy_metric = keras.metrics.Mean(name='loss_ie')
+        self.loss_generator_metric = keras.metrics.Mean(name='loss_gen')
+        self.loss_distill_metric = keras.metrics.Mean(name='loss_dt')
 
         self.accuracy_metric = keras.metrics.Accuracy(name='accuracy')
         self.loss_student_metric = keras.metrics.Mean(name='loss_student')
@@ -323,7 +322,7 @@ class DataFreeDistiller(keras.Model):
             tape.watch(self.student.trainable_variables)
 
             # Phase 1 - Training the Generator
-            latent_noise = tf.random.normal(shape=[self.batch_size, self.generator.latent_dim])
+            latent_noise = tf.random.normal(shape=[self.batch_size, self.latent_dim])
             x_synth = self.generator(latent_noise, training=True)
             teacher_prob, teacher_fmap = self.teacher(x_synth, training=False)
             pseudo_label = tf.math.argmax(input=teacher_prob, axis=1)
@@ -345,10 +344,6 @@ class DataFreeDistiller(keras.Model):
                 teacher_prob = tf.gather(params=teacher_prob, indices=confident_idx)
 
             student_prob = self.student(x_synth, training=True)
-            # Compute scaled distillation loss from https://arxiv.org/abs/1503.02531
-            # The magnitudes of the gradients produced by the soft targets scale
-            # as 1/T^2, multiply them by T^2 when using both hard and soft targets.
-            # Current unapplicable: only T = 1
             loss_distill = self.distill_loss_fn(teacher_prob, student_prob)
 
         # Back-propagation of Generator
@@ -649,13 +644,13 @@ class DataFreeDistiller_Multiple(keras.Model):
         }
 
         # Metrics
-        self.loss_onehot_metric = keras.metrics.Mean(name='loss_onehot')
-        self.loss_activation_metric = keras.metrics.Mean(name='loss_activation')
-        self.loss_info_entropy_metric = keras.metrics.Mean(name='loss_info_entropy')
-        self.loss_generator_metric = keras.metrics.Mean(name='loss_generator')
+        self.loss_onehot_metric = keras.metrics.Mean(name='loss_oh')
+        self.loss_activation_metric = keras.metrics.Mean(name='loss_ac')
+        self.loss_info_entropy_metric = keras.metrics.Mean(name='loss_ie')
+        self.loss_generator_metric = keras.metrics.Mean(name='loss_gen')
 
         self.loss_distill_metric = {
-            student.name_suffix:keras.metrics.Mean(name=f'loss_distill_{student.name_suffix}') for student in self.students
+            student.name_suffix:keras.metrics.Mean(name=f'loss_dt_{student.name_suffix}') for student in self.students
         }
         self.loss_ie_filtered_metric = {
             student.name_suffix:keras.metrics.Mean(name=f'loss_ie_filtered_{student.name_suffix}') for student in self.students
@@ -948,6 +943,8 @@ if __name__ == '__main__':
             validation_data=ds['test']
         )
 
+    run_experiment_mnist()
+
     # Experiment 4.1 extended: Data-free learning on MNIST, with confidence.
     # Train multiple student using data-free learning across a range of
     # confidence thresholds
@@ -988,5 +985,3 @@ if __name__ == '__main__':
     #     shuffle=True,
     #     validation_data=ds['test']
     # )
-
-    run_experiment_mnist()
