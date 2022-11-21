@@ -878,14 +878,6 @@ if __name__ == '__main__':
             optimizer=keras.optimizers.Adam(learning_rate=1e-3),
             loss=keras.losses.SparseCategoricalCrossentropy())
         teacher.build()
-        teacher = add_fmap_output(model=teacher, fmap_layer='flatten', as_functional=False)
-
-        inputs=keras.layers.Input(shape=teacher.input_dim)
-        teacher_f = keras.Model(
-            inputs=inputs,
-            outputs=teacher.call(inputs)
-        )
-        teacher_f = add_fmap_output(model=teacher_f, fmap_layer='flatten', as_functional=True)
 
         if pretrained_teacher is True:
             teacher.load_weights('./pretrained/mnist/LeNet-5_ReLU_MaxPool_9908.h5')
