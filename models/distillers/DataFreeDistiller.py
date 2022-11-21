@@ -937,7 +937,8 @@ if __name__ == '__main__':
         gif_maker = MakeSyntheticGIFCallback(
             filename=f'./logs/{distiller.name}_{student.name}_mnist.gif',
             nrows=5, ncols=5,
-            postprocess_fn=lambda x:x*0.3081 + 0.1307
+            # postprocess_fn=lambda x:x*0.3081 + 0.1307
+            postprocess_fn=lambda x:x*0.5 + 0.5
         )
 
         distiller.fit(
