@@ -1,4 +1,4 @@
-from typing import Tuple
+from typing import Tuple, List, Union
 
 import numpy as np
 import collections
@@ -42,20 +42,35 @@ class PlaceholderDataGenerator(keras.utils.Sequence):
     def __getitem__(self, index=None) -> Tuple[tf.Tensor, tf.Tensor]:
         return tf.zeros(shape=[self.batch_size, 1]), tf.zeros(shape=[self.batch_size, 1])
 
-def add_fmap_output(model:keras.Model, fmap_layer:str) -> keras.Model:
-    """Extract a model's feature map and add to its outputs.
-
+def add_fmap_output(model:keras.Model,
+                    fmap_layer:str,
+                    as_functional:bool=False,
+                    input_dim:Union[None, List[int]]=None) -> keras.Model:
+    """Extract a model's feature map and add to its outputs. Single-use for each
+    model.
+    
     Args:
-        model (keras.Model): host model of feature map
-        fmap_layer (str): name of feature map layer
-
+        `model`: Host model of feature map.
+        `fmap_layer`: Name of feature map layer.
+        `input_dim`: Dimension of model's input, leave as `None` to be parsed from
+            model. Defaults to `None`.
     Returns:
-        keras.Model: host model with an additional feature map output
+        Host model with an additional feature map output using the Functional API.
     """
+    if as_functional is True:
+        inputs = model.input
+        outputs = model.output
+    elif as_functional is False:
+        if input_dim is None:
+            input_dim = model.input_dim
+        inputs = keras.layers.Input(shape=input_dim)
+        outputs = model.call(inputs)
+
     model = keras.Model(
-        inputs=model.layers[0].input,
-        outputs=[model.layers[-1].output, model.get_layer(fmap_layer).output],
+        inputs=inputs,
+        outputs=[outputs, model.get_layer(fmap_layer).output],
         name=model.name)
+
     return model
 
 class CSVLogger_custom(keras.callbacks.CSVLogger):
@@ -231,3 +246,34 @@ class ValidationFreqPrinter(keras.callbacks.Callback):
     def on_epoch_end(self, epoch, logs=None):
         if self.model._should_eval(epoch, self.validation_freq) == True:
             print(f"Epoch {epoch}: {', '.join(f'{k}: {v:.4f}' for k, v in logs.items())}")
+
+if __name__ == '__main__':
+    import os, sys
+    repo_path = os.path.abspath(os.path.join(__file__, '../../..'))
+    assert os.path.basename(repo_path) == 'kd_tf', "Wrong parent folder. Please change to 'kd_tf'"
+    sys.path.append(repo_path)
+
+    from models.classifiers.LeNet_5 import LeNet_5
+
+    def test_add_fmap_output():
+        # Subclassed model
+        net1 = LeNet_5()
+        net1.build()
+        net1 = add_fmap_output(model=net1, fmap_layer='flatten', as_functional=False)
+        # Functional model
+        net2 = LeNet_5()
+        inputs = keras.layers.Input(shape=net2.input_dim)
+        net2 = keras.Model(inputs=inputs, outputs=net2.call(inputs))
+        net2 = add_fmap_output(model=net2, fmap_layer='flatten', as_functional=True)
+        # Results
+        print(' Test `add_fmap_output` '.center(80,'#'))
+        if len(net1.output) == 2:
+            print('Subclassed model: PASSED')
+        else:
+            print('Subclassed model: FAILED')
+        if len(net2.output) == 2:
+            print('Functional model: PASSED')
+        else:
+            print('Subclassed model: FAILED')
+
+    test_add_fmap_output()
