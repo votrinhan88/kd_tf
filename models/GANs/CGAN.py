@@ -675,7 +675,7 @@ class CGAN(GAN):
             dummy_model = keras.Model(inputs=inputs, outputs=outputs, name=self.name)
             dummy_model.summary(**kwargs)
         else:
-            super().summary(**kwargs)
+            keras.Model.summary(self, **kwargs)
 
 if __name__ == '__main__':
     from models.GANs.utils import MakeConditionalSyntheticGIFCallback, MakeInterpolateSyntheticGIFCallback

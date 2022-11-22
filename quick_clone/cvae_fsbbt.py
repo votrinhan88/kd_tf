@@ -146,7 +146,11 @@ def experiment_mnist(latent_dim:int=16, num_epochs:int=20):
     )
     cgan.build()
     cgan.summary(with_graph=True, expand_nested=True, line_length=120)
-    cgan.compile()
+    cgan.compile(
+        optimizer_gen=keras.optimizers.Adam(learning_rate=1e-4, beta_1=0.5),
+        optimizer_disc=keras.optimizers.Adam(learning_rate=1e-4, beta_1=0.5),
+        loss_fn=keras.losses.BinaryCrossentropy()
+    )
 
     ds, info = dataloader(
         dataset='mnist',
@@ -159,13 +163,11 @@ def experiment_mnist(latent_dim:int=16, num_epochs:int=20):
     
     gif_maker = MakeConditionalSyntheticGIFCallback(
         filename=f'./logs/{cgan.name}_{cgan.generator.name}_{cgan.discriminator.name}_mnist_latent{latent_dim}.gif', 
-        postprocess_fn=lambda x:(x+1)/2,
         class_names=class_names
     )
     slerper = MakeInterpolateSyntheticGIFCallback(
         filename=f'./logs/{cgan.name}_{cgan.generator.name}_{cgan.discriminator.name}_mnist_latent{latent_dim}_itpl_slerp.gif',
         itpl_method='slerp',
-        postprocess_fn=lambda x:(x+1)/2,
         class_names=class_names
     )
     cgan.fit(
@@ -193,4 +195,4 @@ if __name__ == '__main__':
     # )
     # cgen.summary(expand_nested=True, line_length=120)
 
-    experiment_mnist(latent_dim=2, num_epochs=20)
+    experiment_mnist(latent_dim=128, num_epochs=20)
