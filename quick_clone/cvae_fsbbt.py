@@ -113,10 +113,18 @@ def experiment_mnist(latent_dim:int=16, num_epochs:int=20):
     latent_input = keras.layers.Input(shape=[latent_dim])
     label_input = keras.layers.Input(shape=[num_classes])
     main_branch = keras.layers.Concatenate()([latent_input, label_input])
-    main_branch = keras.layers.Dense(64, activation='relu')(main_branch)
-    main_branch = keras.layers.Dense(128, activation='relu')(main_branch)
-    main_branch = keras.layers.Dense(256, activation='relu')(main_branch)
-    main_branch = keras.layers.Dense(units=tf.reduce_prod(image_dim), activation='sigmoid')(main_branch)
+    
+    # main_branch = keras.layers.Dense(64, activation='relu')(main_branch)
+    # main_branch = keras.layers.Dense(128, activation='relu')(main_branch)
+    # main_branch = keras.layers.Dense(256, activation='relu')(main_branch)
+    
+    main_branch = keras.layers.Dense(128, activation=tf.nn.leaky_relu)(main_branch)
+    main_branch = keras.layers.Dense(256, activation=tf.nn.leaky_relu)(main_branch)
+    main_branch = keras.layers.Dense(512, activation=tf.nn.leaky_relu)(main_branch)
+
+    # main_branch = keras.layers.Dense(units=tf.reduce_prod(image_dim), activation='sigmoid')(main_branch)
+    main_branch = keras.layers.Dense(units=tf.reduce_prod(image_dim), activation='tanh')(main_branch)
+
     outputs = keras.layers.Reshape(target_shape=image_dim)(main_branch)
 
     cgen = keras.Model(inputs=[latent_input, label_input], outputs=outputs, name='DenseCGen')
@@ -127,9 +135,15 @@ def experiment_mnist(latent_dim:int=16, num_epochs:int=20):
     label_input = keras.layers.Input(shape=[num_classes])
     image_branch = keras.layers.Flatten()(image_input)
     main_branch = keras.layers.Concatenate()([image_branch, label_input])
-    main_branch = keras.layers.Dense(256, activation='relu')(main_branch)
-    main_branch = keras.layers.Dense(128, activation='relu')(main_branch)
-    main_branch = keras.layers.Dense(64, activation='relu')(main_branch)
+
+    # main_branch = keras.layers.Dense(256, activation='relu')(main_branch)
+    # main_branch = keras.layers.Dense(128, activation='relu')(main_branch)
+    # main_branch = keras.layers.Dense(64, activation='relu')(main_branch)
+
+    main_branch = keras.layers.Dense(256, activation=tf.nn.leaky_relu)(main_branch)
+    main_branch = keras.layers.Dense(128, activation=tf.nn.leaky_relu)(main_branch)
+    
+    # outputs = keras.layers.Dense(1, activation='sigmoid')(main_branch)
     outputs = keras.layers.Dense(1, activation='sigmoid')(main_branch)
 
     cdisc = keras.Model(inputs=[image_input, label_input], outputs=outputs, name='DenseCDisc')
@@ -146,14 +160,11 @@ def experiment_mnist(latent_dim:int=16, num_epochs:int=20):
     )
     cgan.build()
     cgan.summary(with_graph=True, expand_nested=True, line_length=120)
-    cgan.compile(
-        optimizer_gen=keras.optimizers.Adam(learning_rate=1e-4, beta_1=0.5),
-        optimizer_disc=keras.optimizers.Adam(learning_rate=1e-4, beta_1=0.5),
-        loss_fn=keras.losses.BinaryCrossentropy()
-    )
+    cgan.compile()
 
     ds, info = dataloader(
         dataset='mnist',
+        rescale=[-1, 1],
         batch_size_train=64,
         batch_size_test=1000,
         drop_remainder=True,
@@ -163,11 +174,13 @@ def experiment_mnist(latent_dim:int=16, num_epochs:int=20):
     
     gif_maker = MakeConditionalSyntheticGIFCallback(
         filename=f'./logs/{cgan.name}_{cgan.generator.name}_{cgan.discriminator.name}_mnist_latent{latent_dim}.gif', 
+        postprocess_fn=lambda x:(x+1)/2,
         class_names=class_names
     )
     slerper = MakeInterpolateSyntheticGIFCallback(
         filename=f'./logs/{cgan.name}_{cgan.generator.name}_{cgan.discriminator.name}_mnist_latent{latent_dim}_itpl_slerp.gif',
         itpl_method='slerp',
+        postprocess_fn=lambda x:(x+1)/2,
         class_names=class_names
     )
     cgan.fit(
@@ -195,4 +208,4 @@ if __name__ == '__main__':
     # )
     # cgen.summary(expand_nested=True, line_length=120)
 
-    experiment_mnist(latent_dim=128, num_epochs=20)
+    experiment_mnist(latent_dim=16, num_epochs=50)
