@@ -92,8 +92,8 @@ def experiment_mnist(latent_dim:int=16, num_epochs:int=20):
     image_dim = [28, 28, 1]
     num_classes = 10
 
-    latent_input = keras.layers.Input(shape=[latent_dim])
-    label_input = keras.layers.Input(shape=[num_classes])
+    latent_input = keras.layers.Input(shape=[latent_dim], name='latent_input')
+    label_input = keras.layers.Input(shape=[num_classes], name='label_input')
     main_branch = keras.layers.Concatenate()([latent_input, label_input])
     main_branch = keras.layers.Dense(64, activation='relu')(main_branch)
     main_branch = keras.layers.Dense(128, activation='relu')(main_branch)
@@ -109,8 +109,7 @@ def experiment_mnist(latent_dim:int=16, num_epochs:int=20):
     cgen.build(input_shape=[[None, latent_dim], [None, num_classes]])
 
 
-    image_input = keras.layers.Input(shape=image_dim)
-    label_input = keras.layers.Input(shape=[num_classes])
+    image_input = keras.layers.Input(shape=image_dim, name='image_input')
     image_branch = keras.layers.Flatten()(image_input)
     main_branch = keras.layers.Concatenate()([image_branch, label_input])
     main_branch = keras.layers.Dense(256, activation='relu')(main_branch)
@@ -149,7 +148,8 @@ def experiment_mnist(latent_dim:int=16, num_epochs:int=20):
     gif_maker = MakeConditionalSyntheticGIFCallback(
         filename=f'./logs/{cgan.name}_{cgan.generator.name}_{cgan.discriminator.name}_mnist_latent{latent_dim}.gif', 
         postprocess_fn=lambda x:(x+1)/2,
-        class_names=class_names
+        class_names=class_names,
+        delete_png=True
     )
     slerper = MakeInterpolateSyntheticGIFCallback(
         filename=f'./logs/{cgan.name}_{cgan.generator.name}_{cgan.discriminator.name}_mnist_latent{latent_dim}_itpl_slerp.gif',
@@ -182,4 +182,4 @@ if __name__ == '__main__':
     # )
     # cgen.summary(expand_nested=True, line_length=120)
 
-    experiment_mnist(latent_dim=16, num_epochs=50)
+    experiment_mnist(latent_dim=64, num_epochs=50)
