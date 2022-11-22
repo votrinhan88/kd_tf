@@ -106,7 +106,7 @@ def define_conv_generator(latent_dim:int=128,
     # x_decoded = Dense(n_feature, activation='sigmoid')(flat)
     # decoder = Model(x_encoded, x_decoded, name="decoder")
 
-def experiment_mnist(latent_dim:int=16):
+def experiment_mnist(latent_dim:int=16, num_epochs:int=20):
     image_dim = [28, 28, 1]
     num_classes = 10
 
@@ -156,27 +156,22 @@ def experiment_mnist(latent_dim:int=16):
         onehot_label=True,
         with_info=True)
     class_names = info.features['label'].names
-
-
-    csv_logger = keras.callbacks.CSVLogger(
-        f'./logs/{cgan.name}_{cgan.generator.name}_{cgan.discriminator.name}.csv',
-        append=True)
     
     gif_maker = MakeConditionalSyntheticGIFCallback(
-        filename=f'./logs/{cgan.name}_{cgan.generator.name}_{cgan.discriminator.name}.gif', 
+        filename=f'./logs/{cgan.name}_{cgan.generator.name}_{cgan.discriminator.name}_mnist_latent{latent_dim}.gif', 
         postprocess_fn=lambda x:(x+1)/2,
         class_names=class_names
     )
     slerper = MakeInterpolateSyntheticGIFCallback(
-        filename=f'./logs/{cgan.name}_{cgan.generator.name}_{cgan.discriminator.name}_itpl_slerp.gif',
+        filename=f'./logs/{cgan.name}_{cgan.generator.name}_{cgan.discriminator.name}_mnist_latent{latent_dim}_itpl_slerp.gif',
         itpl_method='slerp',
         postprocess_fn=lambda x:(x+1)/2,
         class_names=class_names
     )
     cgan.fit(
         x=ds['train'],
-        epochs=50,
-        callbacks=[csv_logger, gif_maker, slerper],
+        epochs=num_epochs,
+        callbacks=[gif_maker, slerper],
         validation_data=ds['test'],
     )
 
@@ -198,4 +193,4 @@ if __name__ == '__main__':
     # )
     # cgen.summary(expand_nested=True, line_length=120)
 
-    experiment_mnist(latent_dim=2)
+    experiment_mnist(latent_dim=2, num_epochs=20)
