@@ -242,6 +242,7 @@ class WGAN(GAN):
 if __name__ == '__main__':
     from dataloader import dataloader
     from models.GANs.utils import MakeSyntheticGIFCallback
+    from models.GANs.GAN import Generator, Discriminator
 
     ds = dataloader(
         dataset='mnist',
@@ -251,8 +252,12 @@ if __name__ == '__main__':
         drop_remainder=True
     )
 
-    generator = define_generator(name='WGenerator')
-    critic = define_critic(name='WCritic')
+    # generator = define_generator(name='WGenerator')
+    # critic = define_critic(name='WCritic')
+    generator = Generator(latent_dim=100, image_dim=[28, 28, 1])
+    generator.build()
+    critic = Discriminator(image_dim=[28, 28, 1], return_logits=True)
+    critic.build()
     wgan = WGAN(
         generator=generator,
         critic=critic,
