@@ -154,11 +154,13 @@ class WGAN(GAN):
 
             loss_real = self.loss_fn(y_real, pred_real)
             loss_synth = self.loss_fn(y_synth, pred_synth)
+            
+            loss_critic = loss_real + loss_synth
         # Back-propagation
         trainable_vars = self.critic.trainable_variables
-        gradients = tape.gradient(loss_real, trainable_vars)        
-        self.optimizer_crit.apply_gradients(zip(gradients, trainable_vars))
-        gradients = tape.gradient(loss_synth, trainable_vars)        
+        # gradients = tape.gradient(loss_real, trainable_vars)        
+        # self.optimizer_crit.apply_gradients(zip(gradients, trainable_vars))
+        gradients = tape.gradient(loss_critic, trainable_vars)        
         self.optimizer_crit.apply_gradients(zip(gradients, trainable_vars))
         del tape
 
