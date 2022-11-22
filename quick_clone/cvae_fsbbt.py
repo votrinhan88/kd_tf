@@ -56,10 +56,10 @@ def define_conv_discriminator(image_dim:List[int]=[28, 28, 1],
     return disc
 
 def define_conv_generator(latent_dim:int=128,
-                     image_dim:List[int]=[28, 28, 1],
-                     base_dim:List[int]=[7, 7, 256],
-                     num_classes:int=10,
-                     **kwargs):
+                          image_dim:List[int]=[28, 28, 1],
+                          base_dim:List[int]=[7, 7, 256],
+                          num_classes:int=10,
+                          **kwargs):
     # Parse architecture from input dimension
     dim_ratio = [image_dim[axis]/base_dim[axis] for axis in range(len(image_dim)-1)]
     for axis in range(len(dim_ratio)):
@@ -198,4 +198,4 @@ if __name__ == '__main__':
     # )
     # cgen.summary(expand_nested=True, line_length=120)
 
-    experiment_mnist()
+    experiment_mnist(latent_dim=2)
