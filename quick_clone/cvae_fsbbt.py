@@ -19,9 +19,6 @@ else:
     from ..models.GANs.utils import MakeConditionalSyntheticGIFCallback, MakeInterpolateSyntheticGIFCallback
     from ..dataloader import dataloader
 
-# train CVAE
-# Encoder: q(z|x)
-
 def define_conv_discriminator(image_dim:List[int]=[28, 28, 1],
                          base_dim:List[int]=[7, 7, 256],
                          num_classes:int=10,
@@ -91,21 +88,6 @@ def define_conv_generator(latent_dim:int=128,
     gen.build(input_shape=[[None, latent_dim], [None, num_classes]])
     return gen
 
-    # x_encoded = Input(shape=(latent + n_class,))
-    # h_p = Dense(16, activation='relu')(x_encoded)
-    # h_p = Dense(32, activation='relu')(h_p)
-    # h = Dense(q_shape[1] * q_shape[2] * q_shape[3])(h_p)
-    # p = Reshape(target_shape=(q_shape[1], q_shape[2], q_shape[3]))(h)
-    # p = Conv2DTranspose(filters=512, kernel_size=4, strides=2, padding='same', activation='relu')(p)
-    # p = Conv2DTranspose(filters=256, kernel_size=4, strides=2, padding='same', activation='relu')(p)
-    # p = Conv2DTranspose(filters=128, kernel_size=4, strides=2, padding='same', activation='relu')(p)
-    # p = Conv2DTranspose(filters=64, kernel_size=4, strides=2, padding='same', activation='relu')(p)
-    # p = Conv2DTranspose(filters=32, kernel_size=4, strides=2, padding='same', activation='relu')(p)
-    # p = Conv2DTranspose(filters=3, kernel_size=4, strides=2, padding='same', activation='relu')(p)
-    # flat = Flatten()(p)
-    # x_decoded = Dense(n_feature, activation='sigmoid')(flat)
-    # decoder = Model(x_encoded, x_decoded, name="decoder")
-
 def experiment_mnist(latent_dim:int=16, num_epochs:int=20):
     image_dim = [28, 28, 1]
     num_classes = 10
@@ -113,18 +95,14 @@ def experiment_mnist(latent_dim:int=16, num_epochs:int=20):
     latent_input = keras.layers.Input(shape=[latent_dim])
     label_input = keras.layers.Input(shape=[num_classes])
     main_branch = keras.layers.Concatenate()([latent_input, label_input])
-    
-    # main_branch = keras.layers.Dense(64, activation='relu')(main_branch)
-    # main_branch = keras.layers.Dense(128, activation='relu')(main_branch)
-    # main_branch = keras.layers.Dense(256, activation='relu')(main_branch)
-    
-    main_branch = keras.layers.Dense(128, activation=tf.nn.leaky_relu)(main_branch)
-    main_branch = keras.layers.Dense(256, activation=tf.nn.leaky_relu)(main_branch)
-    main_branch = keras.layers.Dense(512, activation=tf.nn.leaky_relu)(main_branch)
-
-    # main_branch = keras.layers.Dense(units=tf.reduce_prod(image_dim), activation='sigmoid')(main_branch)
-    main_branch = keras.layers.Dense(units=tf.reduce_prod(image_dim), activation='tanh')(main_branch)
-
+    main_branch = keras.layers.Dense(64, activation='relu')(main_branch)
+    main_branch = keras.layers.Dense(128, activation='relu')(main_branch)
+    main_branch = keras.layers.Dense(256, activation='relu')(main_branch)
+    # main_branch = keras.layers.Dense(128, activation=tf.nn.leaky_relu)(main_branch)
+    # main_branch = keras.layers.Dense(256, activation=tf.nn.leaky_relu)(main_branch)
+    # main_branch = keras.layers.Dense(512, activation=tf.nn.leaky_relu)(main_branch)
+    main_branch = keras.layers.Dense(units=tf.reduce_prod(image_dim), activation='sigmoid')(main_branch)
+    # main_branch = keras.layers.Dense(units=tf.reduce_prod(image_dim), activation='tanh')(main_branch)
     outputs = keras.layers.Reshape(target_shape=image_dim)(main_branch)
 
     cgen = keras.Model(inputs=[latent_input, label_input], outputs=outputs, name='DenseCGen')
@@ -135,15 +113,11 @@ def experiment_mnist(latent_dim:int=16, num_epochs:int=20):
     label_input = keras.layers.Input(shape=[num_classes])
     image_branch = keras.layers.Flatten()(image_input)
     main_branch = keras.layers.Concatenate()([image_branch, label_input])
-
-    # main_branch = keras.layers.Dense(256, activation='relu')(main_branch)
-    # main_branch = keras.layers.Dense(128, activation='relu')(main_branch)
-    # main_branch = keras.layers.Dense(64, activation='relu')(main_branch)
-
-    main_branch = keras.layers.Dense(256, activation=tf.nn.leaky_relu)(main_branch)
-    main_branch = keras.layers.Dense(128, activation=tf.nn.leaky_relu)(main_branch)
-    
-    # outputs = keras.layers.Dense(1, activation='sigmoid')(main_branch)
+    main_branch = keras.layers.Dense(256, activation='relu')(main_branch)
+    main_branch = keras.layers.Dense(128, activation='relu')(main_branch)
+    main_branch = keras.layers.Dense(64, activation='relu')(main_branch)
+    # main_branch = keras.layers.Dense(256, activation=tf.nn.leaky_relu)(main_branch)
+    # main_branch = keras.layers.Dense(128, activation=tf.nn.leaky_relu)(main_branch)
     outputs = keras.layers.Dense(1, activation='sigmoid')(main_branch)
 
     cdisc = keras.Model(inputs=[image_input, label_input], outputs=outputs, name='DenseCDisc')
@@ -164,7 +138,7 @@ def experiment_mnist(latent_dim:int=16, num_epochs:int=20):
 
     ds, info = dataloader(
         dataset='mnist',
-        rescale=[-1, 1],
+        # rescale=[-1, 1],
         batch_size_train=64,
         batch_size_test=1000,
         drop_remainder=True,
