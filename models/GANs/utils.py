@@ -40,6 +40,7 @@ class MakeSyntheticGIFCallback(keras.callbacks.Callback):
                  nrows:int=5,
                  ncols:int=5,
                  postprocess_fn:Union[None, Callable[[Any], Any]]=None,
+                 normalize:bool=True,
                  latent_dim:Union[None, int]=None,
                  image_dim:Union[None, List[int]]=None,
                  keep_noise:bool=True,
@@ -72,6 +73,7 @@ class MakeSyntheticGIFCallback(keras.callbacks.Callback):
         self.nrows = nrows
         self.ncols = ncols
         self.postprocess_fn = postprocess_fn
+        self.normalize = normalize
         self.latent_dim = latent_dim
         self.image_dim = image_dim
         self.keep_noise = keep_noise
@@ -122,6 +124,11 @@ class MakeSyntheticGIFCallback(keras.callbacks.Callback):
         """
         if self.postprocess_fn is None:
             self.postprocess_fn = lambda x:x
+
+        if self.normalize is True:
+            self.vmin, self.vmax = None, None
+        elif self.normalize is False:
+            self.vmin, self.vmax = 0, 1
 
         if self.latent_dim is None:
             self.latent_dim:int = self.model.latent_dim
@@ -175,9 +182,9 @@ class MakeSyntheticGIFCallback(keras.callbacks.Callback):
         self.modify_axis(axis=ax)
 
         if self.image_dim[-1] == 1:
-            ax.imshow(x.squeeze(axis=-1), cmap='gray')
+            ax.imshow(x.squeeze(axis=-1), cmap='gray', vmin=self.vmin, vmax=self.vmax)
         elif self.image_dim[-1] > 1:
-            ax.imshow(x)
+            ax.imshow(x, vmin=self.vmin, vmax=self.vmax)
 
         fig.savefig(self.modify_savepath(value=value))
         plt.close(fig)

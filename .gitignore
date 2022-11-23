@@ -1,6 +1,7 @@
 datasets/
 logs/
 scrap.py
+scrap.ipynb
 
 # pycache
 *.pyc
