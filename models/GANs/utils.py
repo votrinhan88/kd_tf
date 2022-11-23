@@ -78,7 +78,7 @@ class MakeSyntheticGIFCallback(keras.callbacks.Callback):
         self.latent_dim = latent_dim
         self.image_dim = image_dim
         self.keep_noise = keep_noise
-        self.seed = self.seed
+        self.seed = seed
         self.delete_png = delete_png
         self.save_freq = save_freq
         self.duration = duration
