@@ -506,7 +506,6 @@ class CGAN(GAN):
                  discriminator:keras.Model,
                  latent_dim:Union[None, int]=None,
                  image_dim:Union[None, List[int]]=None,
-                 embed_dim:Union[None, int]=None,
                  num_classes:Union[None, int]=None,
                  onehot_input:Union[None, bool]=None,
                  **kwargs):
@@ -519,29 +518,15 @@ class CGAN(GAN):
                 generator. Defaults to `None`.
             `image_dim`: Dimension of synthetic image, leave as `None` to be parsed from
                 generator. Defaults to `None`.
-            `embed_dim`: Dimension of embedding vector, leave as `None` to be parsed
-                from generator. Defaults to `None`.
             `num_classes`: Number of classes, leave as `None` to be parsed from
                 generator. Defaults to `None`.
         """
-        keras.Model.__init__(self, name=self._name, **kwargs)
-        self.generator = generator
-        self.discriminator = discriminator
-
-        if latent_dim is None:
-            self.latent_dim:int = self.generator.latent_dim
-        elif latent_dim is not None:
-            self.latent_dim = latent_dim
-
-        if image_dim is None:
-            self.image_dim:List[int] = self.generator.image_dim
-        elif image_dim is not None:
-            self.image_dim = image_dim
-
-        if embed_dim is None:
-            self.embed_dim:int = self.generator.embed_dim
-        elif embed_dim is not None:
-            self.embed_dim = embed_dim
+        super(CGAN, self).__init__(
+            generator=generator,
+            discriminator=discriminator,
+            latent_dim=latent_dim,
+            image_dim=image_dim,
+            **kwargs)
 
         if num_classes is None:
             self.num_classes:int = self.generator.num_classes
@@ -651,7 +636,6 @@ class CGAN(GAN):
             'discriminator': self.discriminator.get_config(),
             'latent_dim': self.latent_dim,
             'image_dim': self.image_dim,
-            'embed_dim': self.embed_dim,
             'num_classes': self.num_classes,
         })
         return config
@@ -711,10 +695,10 @@ if __name__ == '__main__':
     cdisc.build()
     
     cgan = CGAN(
-        generator=cgen, discriminator=cdisc, embed_dim=-1
+        generator=cgen, discriminator=cdisc
     )
     cgan.build()
-    cgan.summary(line_length=120, expand_nested=True)
+    cgan.summary(with_graph=True, line_length=120, expand_nested=True)
     cgan.compile()
 
     csv_logger = keras.callbacks.CSVLogger(

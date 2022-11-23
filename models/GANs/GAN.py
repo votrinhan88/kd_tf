@@ -137,8 +137,8 @@ class GAN(keras.Model):
     DOI: 10.48550/arXiv.1406.2661
 
     Args:
-        `generator`: Generator model. Defaults to `Generator()`.
-        `discriminator`: Discriminator model. Defaults to `Discriminator()`.
+        `generator`: Generator model.
+        `discriminator`: Discriminator model.
         `latent_dim`: Dimension of latent space, leave `None` to be parsed from
             generator. Defaults to `None`.
         `image_dim`: Dimension of synthetic image, leave `None` to be parsed from
@@ -155,8 +155,8 @@ class GAN(keras.Model):
         """Initialize GAN.
         
         Args:
-            `generator`: Generator model. Defaults to `Generator()`.
-            `discriminator`: Discriminator model. Defaults to `Discriminator()`.
+            `generator`: Generator model.
+            `discriminator`: Discriminator model.
             `latent_dim`: Dimension of latent space, leave as `None` to be parsed from
                 generator. Defaults to `None`.
             `image_dim`: Dimension of synthetic image, leave as `None` to be parsed from
