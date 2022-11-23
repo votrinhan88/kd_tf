@@ -44,6 +44,7 @@ class MakeSyntheticGIFCallback(keras.callbacks.Callback):
                  latent_dim:Union[None, int]=None,
                  image_dim:Union[None, List[int]]=None,
                  keep_noise:bool=True,
+                 seed:Union[None, int]=None,
                  delete_png:bool=True,
                  save_freq:int=1,
                  duration:float=5000,
@@ -77,6 +78,7 @@ class MakeSyntheticGIFCallback(keras.callbacks.Callback):
         self.latent_dim = latent_dim
         self.image_dim = image_dim
         self.keep_noise = keep_noise
+        self.seed = self.seed
         self.delete_png = delete_png
         self.save_freq = save_freq
         self.duration = duration
@@ -140,7 +142,12 @@ class MakeSyntheticGIFCallback(keras.callbacks.Callback):
         """Pre-compute inputs to feed to the generator. Eg: latent noise.
         """
         batch_size = self.nrows*self.ncols
-        self.latent_noise = tf.random.normal(shape=(batch_size, self.latent_dim))
+        if self.seed is None:
+            self.latent_noise = tf.random.normal(shape=(batch_size, self.latent_dim))
+        elif self.seed is not None:
+            self.latent_noise = tf.random.stateless_normal(
+                shape=(batch_size, self.latent_dim),
+                seed=(self.seed, self.seed))
 
     def synthesize_images(self) -> tf.Tensor:
         """Produce synthetic images with the generator.
