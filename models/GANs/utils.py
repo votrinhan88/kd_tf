@@ -243,12 +243,14 @@ class MakeConditionalSyntheticGIFCallback(MakeSyntheticGIFCallback):
                  target_classes:Union[None, List[int]]=None,
                  num_samples_per_class:int=5,
                  postprocess_fn:Union[None, Callable[[Any], Any]]=None,
+                 normalize:bool=True,
                  latent_dim:Union[None, int]=None,
                  image_dim:Union[None, List[int]]=None,
                  num_classes:Union[None, int]=None,
                  class_names:Union[None, List[str]]=None,
                  onehot_input:Union[None, bool]=None,
                  keep_noise:bool=True,
+                 seed:Union[None, int]=None,
                  delete_png:bool=True,
                  save_freq:int=1,
                  duration:float=5000,
@@ -289,9 +291,11 @@ class MakeConditionalSyntheticGIFCallback(MakeSyntheticGIFCallback):
             nrows=None,
             ncols=None,
             postprocess_fn=postprocess_fn,
+            normalize=normalize,
             latent_dim=latent_dim,
             image_dim=image_dim,
             keep_noise=keep_noise,
+            seed=seed,
             delete_png=delete_png,
             save_freq=save_freq,
             duration=duration,
@@ -387,11 +391,13 @@ class MakeInterpolateSyntheticGIFCallback(MakeSyntheticGIFCallback):
                  num_itpl:int=51,
                  itpl_method:Literal['linspace', 'slerp']='linspace',
                  postprocess_fn:Union[None, Callable[[Any], Any]]=None,
+                 normalize:bool=True,
                  latent_dim:Union[None, int]=None,
                  image_dim:Union[None, List[int]]=None,
                  num_classes:Union[None, int]=None,
                  class_names:Union[None, List[str]]=None,
                  keep_noise:bool=True,
+                 seed:Union[None, int]=None,
                  delete_png:bool=True,
                  duration:float=5000,
                  **kwargs):
@@ -431,14 +437,16 @@ class MakeInterpolateSyntheticGIFCallback(MakeSyntheticGIFCallback):
             "`itpl_method` must be 'linspace' or 'slerp'"
         )
 
-        super().__init__(
+        super(MakeInterpolateSyntheticGIFCallback, self).__init__(
             filename=filename,
             nrows=None,
             ncols=None,
             postprocess_fn=postprocess_fn,
+            normalize=normalize,
             latent_dim=latent_dim,
             image_dim=image_dim,
             keep_noise=keep_noise,
+            seed=seed,
             delete_png=delete_png,
             duration=duration,
             **kwargs
