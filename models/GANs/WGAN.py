@@ -89,6 +89,7 @@ def define_critic(
     critic.build(input_shape=[None, *image_dim])
     return critic
 
+# Update test step (wrong label)
 class WGAN(GAN):
     _name = 'WGAN'
     def __init__(self,

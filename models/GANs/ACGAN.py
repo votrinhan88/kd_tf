@@ -103,9 +103,9 @@ class ACGAN(GAN):
     def compile(self,
                 optimizer_disc:keras.optimizers.Optimizer=keras.optimizers.Adam(learning_rate=2e-4, beta_1=0.5),
                 optimizer_gen:keras.optimizers.Optimizer=keras.optimizers.Adam(learning_rate=2e-4, beta_1=0.5),
-                main_loss_fn:keras.losses.Loss=keras.losses.BinaryCrossentropy(),        
+                loss_fn:keras.losses.Loss=keras.losses.BinaryCrossentropy(),        
                 # Sparse CE for normal label, Categorial CE for one-hot label
-                aux_loss_fn:keras.losses.Loss=keras.losses.CategoricalCrossentropy(),
+                loss_fn_aux:keras.losses.Loss=keras.losses.CategoricalCrossentropy(),
                 **kwargs):
         """Compile GAN.
         
@@ -121,30 +121,20 @@ class ACGAN(GAN):
         super(ACGAN, self).compile(
             optimizer_disc=optimizer_disc,
             optimizer_gen=optimizer_gen,
-            loss_fn=None,
-            **kwargs
-        )
-        self.main_loss_fn = main_loss_fn
-        self.aux_loss_fn = aux_loss_fn
-        self.loss_aux_metric = keras.metrics.Mean(name='loss_aux')
-        self.accuracy_aux_metric = keras.metrics.CategoricalCrossentropy(name='accuracy_aux')
+            loss_fn=loss_fn,
+            **kwargs)
+        self.loss_fn_aux = loss_fn_aux
 
-    @property
-    def train_metrics(self) -> List[keras.metrics.Metric]:
-        train_metrics = super(ACGAN, self).train_metrics
-        train_metrics.append(
-            self.loss_aux_metric,
-            self.accuracy_aux_metric
-        )
-        return train_metrics
-        # return [self.loss_real_metric, self.loss_synth_metric, self.loss_gen_metric]
+        # Additional metrics
+        self.accuracy_aux_real_metric = keras.metrics.CategoricalCrossentropy(name='accuracy_aux_real')
+        self.accuracy_aux_synth_metric = keras.metrics.CategoricalCrossentropy(name='accuracy_aux_synth')
     
     @property
     def val_metrics(self) -> List[keras.metrics.Metric]:
         test_metrics = super(ACGAN, self).val_metrics
         test_metrics.append(
-            self.loss_aux_metric,
-            self.accuracy_aux_metric
+            self.accuracy_aux_real_metric,
+            self.accuracy_aux_synth_metric,
         )
         return test_metrics
 
@@ -168,36 +158,102 @@ class ACGAN(GAN):
             dummy_model.summary(**kwargs)
         else:
             keras.Model.summary(self, **kwargs)
+    
+    def synthesize_images(self, label, batch_size:int, training:bool=False):
+        latent_noise = tf.random.normal(shape=[batch_size, self.latent_dim])
+        x_synth = self.generator([latent_noise, label], training=training)
+        return x_synth
+
+    def train_discriminator(self, x_real, label, batch_size:int):
+        # Phase 1 - Training the discriminator
+        y_synth = tf.zeros(shape=(batch_size, 1))
+        y_real = tf.ones(shape=(batch_size, 1))
+
+        with tf.GradientTape(persistent=True, watch_accessed_variables=False) as tape:
+            tape.watch(self.discriminator.trainable_variables)
+    
+            x_synth = self.synthesize_images(label=label, batch_size=batch_size, training=True)
+
+            pred_real, pred_aux_real = self.discriminator(x_real, training=True)
+            pred_synth, pred_aux_synth = self.discriminator(x_synth, training=True)
+
+            loss_real = self.loss_fn(y_real, pred_real) + self.loss_fn_aux(label, pred_aux_real)
+            loss_synth = self.loss_fn(y_synth, pred_synth) + self.loss_fn_aux(label, pred_aux_synth)
+        # Back-propagation
+        trainable_vars = self.discriminator.trainable_variables
+        gradients = tape.gradient(loss_real, trainable_vars)        
+        self.optimizer_disc.apply_gradients(zip(gradients, trainable_vars))
+        gradients = tape.gradient(loss_synth, trainable_vars)        
+        self.optimizer_disc.apply_gradients(zip(gradients, trainable_vars))
+        del tape
+
+        self.loss_real_metric.update_state(loss_real)
+        self.loss_synth_metric.update_state(loss_synth)
+
+    def train_generator(self, label, batch_size:int):
+        # Phase 2 - Training the generator
+        y_real = tf.ones(shape=(batch_size, 1))
+
+        with tf.GradientTape(watch_accessed_variables=False) as tape:
+            tape.watch(self.generator.trainable_variables)
+            x_synth = self.synthesize_images(label=label, batch_size=batch_size, training=True)
+            pred_synth, pred_aux_synth = self.discriminator([x_synth, label], training=True)
+            loss_gen = self.loss_fn(y_real, pred_synth) + self.loss_fn_aux(label, pred_aux_synth)
+        # Back-propagation
+        trainable_vars = self.generator.trainable_variables
+        gradients = tape.gradient(loss_gen, trainable_vars)        
+        self.optimizer_gen.apply_gradients(zip(gradients, trainable_vars))
+        del tape
+
+        # Update the metrics, configured in 'compile()'.
+        self.loss_gen_metric.update_state(loss_gen)
 
     def train_step(self, data):
         # Unpack data
-        x_real, _ = data
-        batch_size = tf.shape(x_real)[0]
+        x_real, label = data
+        batch_size = tf.shape(data[0])[0]
         
-        self.train_discriminator(x_real, batch_size)
-        self.train_generator(batch_size)
+        self.train_discriminator(x_real, label, batch_size)
+        self.train_generator(label, batch_size)
 
         results = {m.name: m.result() for m in self.train_metrics}
         return results
                 
     def test_step(self, data):
-        return super().test_step(data)
+        # Unpack data
+        x_real, label = data
+        batch_size:int = x_real.shape[0]
+        y_synth = tf.zeros(shape=(batch_size, 1))
+        y_real = tf.ones(shape=(batch_size, 1))
+
+        # Test 1 - Discriminator's performance on real images
+        pred_real, pred_aux_real = self.discriminator(x_real)
+        
+        # Test 2 - Discriminator's performance on synthetic images
+        x_synth = self.synthesize_images(label=label, batch_size=batch_size, training=False)
+        pred_synth, pred_aux_synth = self.discriminator(x_synth)
+
+        # Update the metrics, configured in 'compile()'.
+        self.accuracy_real_metric.update_state(y_true=y_real, y_pred=pred_real)
+        self.accuracy_synth_metric.update_state(y_true=y_synth, y_pred=pred_synth)
+        self.accuracy_aux_real_metric.update_state(y_true=label, y_pred=pred_aux_real)
+        self.accuracy_aux_synth_metric.update_state(y_true=label, y_pred=pred_aux_synth)
+        results = {m.name: m.result() for m in self.val_metrics}
+        return results
 
     def get_config(self):
-        config = super(GAN, self).get_config()
+        config = super(ACGAN, self).get_config()
         config.update({
+            'generator_class':self.generator.__class__,
+            'generator': self.generator.get_config(),
+            'discriminator_class':self.discriminator.__class__,
+            'discriminator': self.discriminator.get_config(),
+            'latent_dim': self.latent_dim,
+            'image_dim': self.image_dim,
+            'num_classes': self.num_classes,
+            'onehot_input': self.onehot_input,
         })
         return config
-
-    @classmethod
-    def from_config(cls, config:dict, custom_objects=None):
-        # config.update({
-        #     'generator':config['generator_class'].from_config(config['generator']),
-        #     'discriminator':config['discriminator_class'].from_config(config['discriminator'])
-        # })
-        # for key in ['generator_class', 'discriminator_class']:
-        #     config.pop(key, None)
-        return super(GAN, cls).from_config(config, custom_objects)
 
 class AC_Discriminator(keras.Model):
     _name = 'ACDisc'
@@ -264,12 +320,12 @@ class AC_Discriminator(keras.Model):
         if self.return_logits is False:
             self.pred = keras.layers.Dense(units=1, use_bias=False, activation=tf.nn.sigmoid, name='pred')
             if self.num_classes == 1:
-                self.aux_pred = keras.layers.Dense(units=self.num_classes, name='aux_pred', activation=tf.nn.sigmoid)
+                self.pred_aux = keras.layers.Dense(units=self.num_classes, name='pred_aux', activation=tf.nn.sigmoid)
             elif self.num_classes > 1:
-                self.aux_pred = keras.layers.Dense(units=self.num_classes, name='aux_pred', activation=tf.nn.softmax)
+                self.pred_aux = keras.layers.Dense(units=self.num_classes, name='pred_aux', activation=tf.nn.softmax)
         elif self.return_logits is True:
             self.logits = keras.layers.Dense(units=1, use_bias=False, name='logits')
-            self.aux_logits = keras.layers.Dense(units=self.num_classes, name='aux_logits')
+            self.logits_aux = keras.layers.Dense(units=self.num_classes, name='logits_aux')
 
     def call(self, inputs, training:bool=False):
         x = inputs
@@ -278,10 +334,10 @@ class AC_Discriminator(keras.Model):
         x = self.flatten(x)
         if self.return_logits is False:
             main_branch = self.pred(x)
-            aux_branch = self.aux_pred(x)
+            aux_branch = self.pred_aux(x)
         elif self.return_logits is True:
             main_branch = self.logits(x)
-            aux_branch = self.aux_logits(x)
+            aux_branch = self.logits_aux(x)
         return main_branch, aux_branch
 
     def get_config(self):
@@ -341,4 +397,26 @@ if __name__ == '__main__':
     acgan = ACGAN(generator=gen, discriminator=disc)
     acgan.build()
     acgan.summary(with_graph=True, expand_nested=True, line_length=120)
+    acgan.compile()
     
+    csv_logger = keras.callbacks.CSVLogger(
+        f'./logs/{acgan.name}_{acgan.generator.name}_{acgan.discriminator.name}.csv',
+        append=True)
+    
+    gif_maker = MakeConditionalSyntheticGIFCallback(
+        filename=f'./logs/{acgan.name}_{acgan.generator.name}_{acgan.discriminator.name}.gif', 
+        postprocess_fn=lambda x:(x+1)/2,
+        class_names=class_names
+    )
+    slerper = MakeInterpolateSyntheticGIFCallback(
+        filename=f'./logs/{acgan.name}_{acgan.generator.name}_{acgan.discriminator.name}_itpl_slerp.gif',
+        itpl_method='slerp',
+        postprocess_fn=lambda x:(x+1)/2,
+        class_names=class_names
+    )
+    acgan.fit(
+        x=ds['train'],
+        epochs=50,
+        callbacks=[csv_logger, gif_maker, slerper],
+        validation_data=ds['test'],
+    )

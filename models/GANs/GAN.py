@@ -312,9 +312,14 @@ class GAN(keras.Model):
 
     @classmethod
     def from_config(cls, config:dict, custom_objects=None):
+        generator = config['generator_class'].from_config(config['generator'])
+        generator.build()
+        discriminator = config['discriminator_class'].from_config(config['discriminator'])
+        discriminator.build()
+
         config.update({
-            'generator':config['generator_class'].from_config(config['generator']),
-            'discriminator':config['discriminator_class'].from_config(config['discriminator'])
+            'generator':generator,
+            'discriminator':discriminator
         })
         for key in ['generator_class', 'discriminator_class']:
             config.pop(key, None)
