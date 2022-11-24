@@ -403,7 +403,13 @@ if __name__ == '__main__':
     acgan = ACGAN(generator=gen, discriminator=disc)
     acgan.build()
     acgan.summary(with_graph=True, expand_nested=True, line_length=120)
-    acgan.compile()
+    acgan.compile(
+        optimizer_disc=keras.optimizers.Adam(learning_rate=2e-4),
+        optimizer_gen=keras.optimizers.Adam(learning_rate=2e-4),
+        loss_fn=keras.losses.BinaryCrossentropy(),
+        # loss_fn_aux=keras.losses.CategoricalCrossentropy(),
+        loss_fn_aux=keras.losses.KLDivergence(),
+    )
     
     csv_logger = keras.callbacks.CSVLogger(
         f'./logs/{acgan.name}_{acgan.generator.name}_{acgan.discriminator.name}.csv',
