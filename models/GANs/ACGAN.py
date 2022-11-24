@@ -198,6 +198,15 @@ class ACGAN(GAN):
         # Phase 2 - Training the generator
         y_real = tf.ones(shape=(batch_size, 1))
 
+        # if label is None:
+        label = tf.one_hot(
+            indices=tf.random.uniform(
+                shape=(batch_size),
+                minval=0, maxval=self.num_classes, dtype=tf.int32),
+            depth=self.num_classes,
+            axis=1
+        )
+
         with tf.GradientTape(watch_accessed_variables=False) as tape:
             tape.watch(self.generator.trainable_variables)
             x_synth = self.synthesize_images(label=label, batch_size=batch_size, training=True)
@@ -404,7 +413,7 @@ if __name__ == '__main__':
     acgan.build()
     acgan.summary(with_graph=True, expand_nested=True, line_length=120)
     acgan.compile(
-        optimizer_disc=keras.optimizers.Adam(learning_rate=2e-4),
+        optimizer_disc=keras.optimizers.Adam(learning_rate=2e-4),   
         optimizer_gen=keras.optimizers.Adam(learning_rate=2e-4),
         loss_fn=keras.losses.BinaryCrossentropy(),
         # loss_fn_aux=keras.losses.CategoricalCrossentropy(),
