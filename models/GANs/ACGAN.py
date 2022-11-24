@@ -100,6 +100,12 @@ class ACGAN(GAN):
         elif onehot_input is not None:
             self.onehot_input = onehot_input
 
+    def call(self, inputs, training:bool=False):
+        latents, labels = inputs
+        x_synth = self.generator.call([latents, labels], training=training)
+        pred, pred_aux = self.discriminator.call(x_synth, training=training)
+        return pred, pred_aux
+
     def compile(self,
                 optimizer_disc:keras.optimizers.Optimizer=keras.optimizers.Adam(learning_rate=2e-4, beta_1=0.5),
                 optimizer_gen:keras.optimizers.Optimizer=keras.optimizers.Adam(learning_rate=2e-4, beta_1=0.5),
@@ -132,10 +138,8 @@ class ACGAN(GAN):
     @property
     def val_metrics(self) -> List[keras.metrics.Metric]:
         test_metrics = super(ACGAN, self).val_metrics
-        test_metrics.append(
-            self.accuracy_aux_real_metric,
-            self.accuracy_aux_synth_metric,
-        )
+        test_metrics.append(self.accuracy_aux_real_metric)
+        test_metrics.append(self.accuracy_aux_synth_metric)
         return test_metrics
 
     def build(self):
@@ -388,12 +392,16 @@ if __name__ == '__main__':
         onehot_input=True
     )
     gen.build()
+    gen.summary()
+
     disc = AC_Discriminator(
         image_dim=[28, 28, 1],
         base_dim=[7, 7, 256],
         num_classes=10
     )
     disc.build()
+    disc.summary()
+
     acgan = ACGAN(generator=gen, discriminator=disc)
     acgan.build()
     acgan.summary(with_graph=True, expand_nested=True, line_length=120)
