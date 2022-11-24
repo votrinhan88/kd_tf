@@ -201,7 +201,7 @@ class ACGAN(GAN):
         with tf.GradientTape(watch_accessed_variables=False) as tape:
             tape.watch(self.generator.trainable_variables)
             x_synth = self.synthesize_images(label=label, batch_size=batch_size, training=True)
-            pred_synth, pred_aux_synth = self.discriminator([x_synth, label], training=True)
+            pred_synth, pred_aux_synth = self.discriminator(x_synth, training=True)
             loss_gen = self.loss_fn(y_real, pred_synth) + self.loss_fn_aux(label, pred_aux_synth)
         # Back-propagation
         trainable_vars = self.generator.trainable_variables
@@ -392,7 +392,6 @@ if __name__ == '__main__':
         onehot_input=True
     )
     gen.build()
-    gen.summary()
 
     disc = AC_Discriminator(
         image_dim=[28, 28, 1],
@@ -400,7 +399,6 @@ if __name__ == '__main__':
         num_classes=10
     )
     disc.build()
-    disc.summary()
 
     acgan = ACGAN(generator=gen, discriminator=disc)
     acgan.build()
