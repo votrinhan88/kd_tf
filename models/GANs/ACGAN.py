@@ -136,8 +136,8 @@ class ACGAN(GAN):
         self.loss_fn_aux = loss_fn_aux
 
         # Additional metrics
-        self.accuracy_aux_real_metric = keras.metrics.CategoricalCrossentropy(name='accuracy_aux_real')
-        self.accuracy_aux_synth_metric = keras.metrics.CategoricalCrossentropy(name='accuracy_aux_synth')
+        self.accuracy_aux_real_metric = keras.metrics.CategoricalAccuracy(name='accuracy_aux_real')
+        self.accuracy_aux_synth_metric = keras.metrics.CategoricalAccuracy(name='accuracy_aux_synth')
     
     @property
     def val_metrics(self) -> List[keras.metrics.Metric]:
@@ -480,11 +480,11 @@ def experiment_cifar10():
     class_names = info.features['label'].names
 
     gan.compile(
-        optimizer_disc=keras.optimizers.Adam(learning_rate=2e-4),   
-        optimizer_gen=keras.optimizers.Adam(learning_rate=2e-4),
+        optimizer_disc=keras.optimizers.Adam(learning_rate=2e-4, beta_1=0.5, beta_2=0.999),
+        optimizer_gen=keras.optimizers.Adam(learning_rate=2e-4, beta_1=0.5, beta_2=0.999),
         loss_fn=keras.losses.BinaryCrossentropy(),
-        # loss_fn_aux=keras.losses.CategoricalCrossentropy(),
-        loss_fn_aux=keras.losses.KLDivergence(),
+        loss_fn_aux=keras.losses.CategoricalCrossentropy(),
+        # loss_fn_aux=keras.losses.KLDivergence(),
     )
     
     csv_logger = keras.callbacks.CSVLogger(
