@@ -10,9 +10,13 @@ if __name__ == '__main__':
     assert os.path.basename(repo_path) == 'kd_tf', "Wrong parent folder. Please change to 'kd_tf'"
     sys.path.append(repo_path)
 
+    from dataloader import dataloader
     from models.GANs.GAN import GAN
+    from models.GANs.utils import MakeConditionalSyntheticGIFCallback, MakeInterpolateSyntheticGIFCallback
 else:
+    from ...dataloader import dataloader
     from .GAN import GAN
+    from .utils import MakeConditionalSyntheticGIFCallback, MakeInterpolateSyntheticGIFCallback
 
 def keras_example(latent_dim:int=100):
     # Fixed for mnist
@@ -201,7 +205,7 @@ class ACGAN(GAN):
         # if label is None:
         label = tf.one_hot(
             indices=tf.random.uniform(
-                shape=(batch_size),
+                shape=[batch_size],
                 minval=0, maxval=self.num_classes, dtype=tf.int32),
             depth=self.num_classes,
             axis=1
@@ -376,43 +380,106 @@ class AC_Discriminator(keras.Model):
         else:
             super().summary(**kwargs)
 
-if __name__ == '__main__':
-    # keras_example()
-    from dataloader import dataloader
-    from models.GANs.CGAN import ConditionalGeneratorEmbed
-    from models.GANs.utils import MakeConditionalSyntheticGIFCallback, MakeInterpolateSyntheticGIFCallback
+def experiment_cifar10():
+    IMAGE_DIM = [32, 32, 3]
+    NUM_CLASSES = 10
+    LATENT_DIM = 100
+    BATCH_SIZE = 100
+    ITERATION = 50000
+    LEAKY_RELU_SLOPE = 0.2
+    ACTIVATION_NOISE_STD = 0.1
+    WEIGHT_INIT = keras.initializers.RandomNormal(mean=0, stddev=0.02)
+    BIAS_INIT = keras.initializers.Zeros()
+
+    def define_generator():
+        latent_input = keras.layers.Input(shape=[LATENT_DIM])
+        label_input = keras.layers.Input(shape=[NUM_CLASSES])
+        main_branch = keras.layers.Concatenate()([latent_input, label_input])
+        main_branch = keras.layers.Reshape(target_shape=[1, 1, LATENT_DIM + NUM_CLASSES])(main_branch)
+
+        main_branch = keras.layers.Dense(units=384, kernel_initializer=WEIGHT_INIT, bias_initializer=BIAS_INIT)(main_branch)
+        main_branch = keras.layers.Activation(tf.nn.relu)(main_branch)
+
+        main_branch = keras.layers.Conv2DTranspose(filters=192, kernel_size=(5, 5), strides=(2, 2), padding='valid', kernel_initializer=WEIGHT_INIT, bias_initializer=BIAS_INIT)(main_branch)
+        main_branch = keras.layers.BatchNormalization()(main_branch)
+        main_branch = keras.layers.Activation(tf.nn.relu)(main_branch)
+
+        main_branch = keras.layers.Conv2DTranspose(filters=96, kernel_size=(5, 5), strides=(2, 2), padding='valid', kernel_initializer=WEIGHT_INIT, bias_initializer=BIAS_INIT)(main_branch)
+        main_branch = keras.layers.BatchNormalization()(main_branch)
+        main_branch = keras.layers.Activation(tf.nn.relu)(main_branch)
+
+        main_branch = keras.layers.Conv2DTranspose(filters=3, kernel_size=(5, 5), strides=(2, 2), padding='valid',  kernel_initializer=WEIGHT_INIT, bias_initializer=BIAS_INIT)(main_branch)
+        main_branch = keras.layers.Activation(tf.nn.relu)(main_branch)
+        # Small tweak: additional conv layer to match dimension
+        main_branch = keras.layers.Conv2DTranspose(filters=3, kernel_size=(4, 4), strides=(1, 1), padding='valid',  kernel_initializer=WEIGHT_INIT, bias_initializer=BIAS_INIT)(main_branch)
+        outputs = keras.layers.Activation(tf.nn.tanh)(main_branch)
+
+        gen = keras.Model(inputs=[latent_input, label_input], outputs=outputs, name='ACGen')
+        gen.build(input_shape=[[None, LATENT_DIM], [None, NUM_CLASSES]])
+        return gen
+
+    def define_discriminator():
+        image_input = keras.layers.Input(shape=IMAGE_DIM)
+
+        main_branch = keras.layers.Conv2D(filters=16, kernel_size=(3, 3), strides=(2, 2), padding='same', kernel_initializer=WEIGHT_INIT, bias_initializer=BIAS_INIT)(image_input)
+        main_branch = keras.layers.LeakyReLU(alpha=LEAKY_RELU_SLOPE)(main_branch)
+        main_branch = keras.layers.Dropout(rate=0.5)(main_branch)
+
+        main_branch = keras.layers.Conv2D(filters=32, kernel_size=(3, 3), strides=(1, 1), padding='valid', kernel_initializer=WEIGHT_INIT, bias_initializer=BIAS_INIT)(main_branch)
+        main_branch = keras.layers.BatchNormalization()(main_branch)
+        main_branch = keras.layers.LeakyReLU(alpha=LEAKY_RELU_SLOPE)(main_branch)
+        main_branch = keras.layers.Dropout(rate=0.5)(main_branch)
+
+        main_branch = keras.layers.Conv2D(filters=64, kernel_size=(3, 3), strides=(2, 2), padding='same', kernel_initializer=WEIGHT_INIT, bias_initializer=BIAS_INIT)(main_branch)
+        main_branch = keras.layers.BatchNormalization()(main_branch)
+        main_branch = keras.layers.LeakyReLU(alpha=LEAKY_RELU_SLOPE)(main_branch)
+        main_branch = keras.layers.Dropout(rate=0.5)(main_branch)
+
+        main_branch = keras.layers.Conv2D(filters=128, kernel_size=(3, 3), strides=(1, 1), padding='valid', kernel_initializer=WEIGHT_INIT, bias_initializer=BIAS_INIT)(main_branch)
+        main_branch = keras.layers.BatchNormalization()(main_branch)
+        main_branch = keras.layers.LeakyReLU(alpha=LEAKY_RELU_SLOPE)(main_branch)
+        main_branch = keras.layers.Dropout(rate=0.5)(main_branch)
+
+        main_branch = keras.layers.Conv2D(filters=256, kernel_size=(3, 3), strides=(2, 2), padding='same', kernel_initializer=WEIGHT_INIT, bias_initializer=BIAS_INIT)(main_branch)
+        main_branch = keras.layers.BatchNormalization()(main_branch)
+        main_branch = keras.layers.LeakyReLU(alpha=LEAKY_RELU_SLOPE)(main_branch)
+        main_branch = keras.layers.Dropout(rate=0.5)(main_branch)
+
+        main_branch = keras.layers.Conv2D(filters=512, kernel_size=(3, 3), strides=(1, 1), padding='valid', kernel_initializer=WEIGHT_INIT, bias_initializer=BIAS_INIT)(main_branch)
+        main_branch = keras.layers.BatchNormalization()(main_branch)
+        main_branch = keras.layers.LeakyReLU(alpha=LEAKY_RELU_SLOPE)(main_branch)
+        main_branch = keras.layers.Dropout(rate=0.5)(main_branch)
+
+        main_branch = keras.layers.Flatten()(main_branch)
+        pred = keras.layers.Dense(units=1, activation=tf.nn.sigmoid, kernel_initializer=WEIGHT_INIT, bias_initializer=BIAS_INIT)(main_branch)
+        pred_aux = keras.layers.Dense(units=10, activation=tf.nn.softmax, kernel_initializer=WEIGHT_INIT, bias_initializer=BIAS_INIT)(main_branch)
+        disc = keras.Model(inputs=image_input, outputs=[pred, pred_aux], name='ACDisc')
+        disc.build(input_shape=[None, *IMAGE_DIM])
+        return disc
+
+    gen = define_generator()
+    disc = define_discriminator()
+    gan = ACGAN(
+        generator=gen,
+        discriminator=disc,
+        latent_dim=LATENT_DIM,
+        image_dim=IMAGE_DIM,
+        num_classes=NUM_CLASSES,
+        onehot_input=True)
+    gan.build()
+    gan.summary(with_graph=True, expand_nested=True, line_length=120)
 
     ds, info = dataloader(
-        dataset='mnist',
+        dataset='cifar10',
         rescale=[-1, 1],
-        batch_size_train=64,
+        batch_size_train=BATCH_SIZE,
         batch_size_test=1000,
         drop_remainder=True,
         onehot_label=True,
         with_info=True)
     class_names = info.features['label'].names
 
-    gen = ConditionalGeneratorEmbed(
-        latent_dim=100,
-        image_dim=[28, 28, 1],
-        base_dim=[7, 7, 256],
-        embed_dim=50,
-        num_classes=10,
-        onehot_input=True
-    )
-    gen.build()
-
-    disc = AC_Discriminator(
-        image_dim=[28, 28, 1],
-        base_dim=[7, 7, 256],
-        num_classes=10
-    )
-    disc.build()
-
-    acgan = ACGAN(generator=gen, discriminator=disc)
-    acgan.build()
-    acgan.summary(with_graph=True, expand_nested=True, line_length=120)
-    acgan.compile(
+    gan.compile(
         optimizer_disc=keras.optimizers.Adam(learning_rate=2e-4),   
         optimizer_gen=keras.optimizers.Adam(learning_rate=2e-4),
         loss_fn=keras.losses.BinaryCrossentropy(),
@@ -421,23 +488,91 @@ if __name__ == '__main__':
     )
     
     csv_logger = keras.callbacks.CSVLogger(
-        f'./logs/{acgan.name}_{acgan.generator.name}_{acgan.discriminator.name}.csv',
+        f'./logs/{gan.name}_{gan.generator.name}_{gan.discriminator.name}.csv',
         append=True)
     
     gif_maker = MakeConditionalSyntheticGIFCallback(
-        filename=f'./logs/{acgan.name}_{acgan.generator.name}_{acgan.discriminator.name}.gif', 
+        filename=f'./logs/{gan.name}_{gan.generator.name}_{gan.discriminator.name}.gif', 
         postprocess_fn=lambda x:(x+1)/2,
         class_names=class_names
     )
     slerper = MakeInterpolateSyntheticGIFCallback(
-        filename=f'./logs/{acgan.name}_{acgan.generator.name}_{acgan.discriminator.name}_itpl_slerp.gif',
+        filename=f'./logs/{gan.name}_{gan.generator.name}_{gan.discriminator.name}_itpl_slerp.gif',
         itpl_method='slerp',
         postprocess_fn=lambda x:(x+1)/2,
         class_names=class_names
     )
-    acgan.fit(
+    gan.fit(
         x=ds['train'],
         epochs=50,
         callbacks=[csv_logger, gif_maker, slerper],
         validation_data=ds['test'],
     )
+
+if __name__ == '__main__':
+    # # keras_example()
+    # from dataloader import dataloader
+    # from models.GANs.CGAN import ConditionalGeneratorEmbed
+    # from models.GANs.utils import MakeConditionalSyntheticGIFCallback, MakeInterpolateSyntheticGIFCallback
+
+    # ds, info = dataloader(
+    #     dataset='mnist',
+    #     rescale=[-1, 1],
+    #     batch_size_train=64,
+    #     batch_size_test=1000,
+    #     drop_remainder=True,
+    #     onehot_label=True,
+    #     with_info=True)
+    # class_names = info.features['label'].names
+
+    # gen = ConditionalGeneratorEmbed(
+    #     latent_dim=100,
+    #     image_dim=[28, 28, 1],
+    #     base_dim=[7, 7, 256],
+    #     embed_dim=50,
+    #     num_classes=10,
+    #     onehot_input=True
+    # )
+    # gen.build()
+
+    # disc = AC_Discriminator(
+    #     image_dim=[28, 28, 1],
+    #     base_dim=[7, 7, 256],
+    #     num_classes=10
+    # )
+    # disc.build()
+
+    # acgan = ACGAN(generator=gen, discriminator=disc)
+    # acgan.build()
+    # acgan.summary(with_graph=True, expand_nested=True, line_length=120)
+    # acgan.compile(
+    #     optimizer_disc=keras.optimizers.Adam(learning_rate=2e-4),   
+    #     optimizer_gen=keras.optimizers.Adam(learning_rate=2e-4),
+    #     loss_fn=keras.losses.BinaryCrossentropy(),
+    #     # loss_fn_aux=keras.losses.CategoricalCrossentropy(),
+    #     loss_fn_aux=keras.losses.KLDivergence(),
+    # )
+    
+    # csv_logger = keras.callbacks.CSVLogger(
+    #     f'./logs/{acgan.name}_{acgan.generator.name}_{acgan.discriminator.name}.csv',
+    #     append=True)
+    
+    # gif_maker = MakeConditionalSyntheticGIFCallback(
+    #     filename=f'./logs/{acgan.name}_{acgan.generator.name}_{acgan.discriminator.name}.gif', 
+    #     postprocess_fn=lambda x:(x+1)/2,
+    #     class_names=class_names
+    # )
+    # slerper = MakeInterpolateSyntheticGIFCallback(
+    #     filename=f'./logs/{acgan.name}_{acgan.generator.name}_{acgan.discriminator.name}_itpl_slerp.gif',
+    #     itpl_method='slerp',
+    #     postprocess_fn=lambda x:(x+1)/2,
+    #     class_names=class_names
+    # )
+    # acgan.fit(
+    #     x=ds['train'],
+    #     epochs=50,
+    #     callbacks=[csv_logger, gif_maker, slerper],
+    #     validation_data=ds['test'],
+    # )
+
+    experiment_cifar10()
