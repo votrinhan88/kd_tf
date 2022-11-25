@@ -469,8 +469,14 @@ def experiment_cifar10():
     gan.build()
     gan.summary(with_graph=True, expand_nested=True, line_length=120)
 
+    def augmentation_fn(x):
+        x = tf.pad(tensor=x, paddings=[[0, 0], [2, 2], [2, 2], [0, 0]], mode='SYMMETRIC')
+        x = tf.image.random_crop(value=x, size=[tf.shape(x)[0], 32, 32, 3])
+        x = tf.image.random_flip_left_right(image=x)
+        return x
     ds, info = dataloader(
         dataset='cifar10',
+        augmentation_fn=augmentation_fn,
         rescale=[-1, 1],
         batch_size_train=BATCH_SIZE,
         batch_size_test=1000,
