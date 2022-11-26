@@ -952,11 +952,9 @@ if __name__ == '__main__':
         NUM_EPOCHS_TEACHER, NUM_EPOCHS_DISTILL = 200, 2000
         COEFF_OH, COEFF_AC, COEFF_IE = 0.05, 0.01, 5
 
-        OPTIMIZER_TEACHER = keras.optimizers.SGD(
-            learning_rate=0.1, momentum=0.9) # 1e-1 to 1e-2 to 1e-3
-
+        OPTIMIZER_TEACHER = keras.optimizers.SGD(learning_rate=0.1, momentum=0.9) # 1e-1 to 1e-2 to 1e-3
         OPTIMIZER_GENERATOR = keras.optimizers.Adam(learning_rate=2e-2, epsilon=1e-8)
-        OPTIMIZER_STUDENT = keras.optimizers.Adam(learning_rate=1e-1, epsilon=1e-8)
+        OPTIMIZER_STUDENT = keras.optimizers.SGD(learning_rate=1e-1, momentum=0.9)
 
         print(' Experiment 4.4: DAFL on CIFAR-10. Teacher: ResNet-34, student: ResNet-18 '.center(80,'#'))
 
