@@ -973,15 +973,15 @@ if __name__ == '__main__':
 
         # Teacher (ResNet-34)
         teacher = ResNet_DAFL(ver=34, input_dim=IMAGE_DIM, num_classes=NUM_CLASSES)
-        teacher.compile(
-            metrics=['accuracy'], 
-            optimizer=OPTIMIZER_TEACHER,
-            loss=keras.losses.SparseCategoricalCrossentropy())
         teacher.build()
 
         if pretrained_teacher is True:
             teacher.load_weights(filepath=f'./pretrained/cifar10/mean0_std1/ResNet-DAFL-34_9499.h5')
         elif pretrained_teacher is False:
+            teacher.compile(
+                metrics=['accuracy'], 
+                optimizer=OPTIMIZER_TEACHER,
+                loss=keras.losses.SparseCategoricalCrossentropy())
             def schedule(epoch:int, learing_rate:float):
                 if epoch in [80, 120]:
                     learing_rate = learing_rate*0.1
