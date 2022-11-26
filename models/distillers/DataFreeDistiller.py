@@ -1062,4 +1062,4 @@ if __name__ == '__main__':
             validation_data=ds['test']
         )
 
-    run_experiment_mnist(pretrained_teacher=True)
+    run_experiment_cifar10(pretrained_teacher=False)
