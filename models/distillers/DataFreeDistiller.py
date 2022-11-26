@@ -958,8 +958,7 @@ if __name__ == '__main__':
         OPTIMIZER_GENERATOR = keras.optimizers.Adam(learning_rate=2e-2, epsilon=1e-8)
         OPTIMIZER_STUDENT = keras.optimizers.Adam(learning_rate=1e-1, epsilon=1e-8)
 
-
-        print(' Experiment 4.4: DAFL on MNIST. Teacher: ResNet-34, student: ResNet-18 '.center(80,'#'))
+        print(' Experiment 4.4: DAFL on CIFAR-10. Teacher: ResNet-34, student: ResNet-18 '.center(80,'#'))
 
         def augmentation_fn(x):
             x = tf.pad(tensor=x, paddings=[[0, 0], [2, 2], [2, 2], [0, 0]], mode='SYMMETRIC')

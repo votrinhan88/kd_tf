@@ -174,8 +174,6 @@ class ResNet_DAFL(keras.Model):
 
         # Workaround to access first layer's input (cannot access sub-module of
         # subclassed models)
-        self.input_layer = Identity(name='input')
-
         self.conv_1 = keras.Sequential(
             layers=[
                 keras.layers.Conv2D(64, kernel_size=3, strides=1, padding="same", use_bias=False,     kernel_regularizer=self.l2_regu, bias_regularizer=self.l2_regu),
@@ -197,8 +195,7 @@ class ResNet_DAFL(keras.Model):
             self.logits = keras.layers.Dense(units=self.num_classes, name='logits',     kernel_regularizer=self.l2_regu, bias_regularizer=self.l2_regu)
 
     def call(self, inputs):
-        x = self.input_layer(inputs)
-        x = self.conv_1(x)
+        x = self.conv_1(inputs)
         x = self.conv_2(x)
         x = self.conv_3(x)
         x = self.conv_4(x)
@@ -212,8 +209,16 @@ class ResNet_DAFL(keras.Model):
 
     def build(self):
         super().build(input_shape=[None, *self.input_dim])
+    
+    def summary(self, with_graph:bool=False, **kwargs):
         inputs = keras.layers.Input(shape=self.input_dim)
-        self.call(inputs)
+        outputs = self.call(inputs)
+
+        if with_graph is True:
+            dummy_model = keras.Model(inputs=inputs, outputs=outputs, name=self.name)
+            dummy_model.summary(**kwargs)
+        else:
+            super().summary(**kwargs)
 
     def get_config(self):
         return {
