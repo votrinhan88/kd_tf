@@ -983,7 +983,7 @@ if __name__ == '__main__':
         teacher.build()
 
         if pretrained_teacher is True:
-            teacher.load_weights('')
+            teacher.load_weights(filepath=f'./logs/{teacher.name}_best.h5')
         elif pretrained_teacher is False:
             def schedule(epoch:int, learing_rate:float):
                 if epoch in [80, 120]:
@@ -1008,7 +1008,7 @@ if __name__ == '__main__':
             )
             teacher.load_weights(filepath=f'./logs/{teacher.name}_best.h5')
         teacher.evaluate(ds['test'])
-        teacher = add_fmap_output(model=teacher, fmap_layer='flatten')
+        teacher = add_fmap_output(model=teacher, fmap_layer='glb_pool')
 
         # Student (ResNet-18)
         student = ResNet_DAFL(ver=18, input_dim=IMAGE_DIM, num_classes=NUM_CLASSES)
