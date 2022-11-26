@@ -980,7 +980,7 @@ if __name__ == '__main__':
         teacher.build()
 
         if pretrained_teacher is True:
-            teacher.load_weights(filepath=f'./logs/{teacher.name}_best.h5')
+            teacher.load_weights(filepath=f'./pretrained/cifar10/mean0_std1/ResNet-DAFL-34_9499.h5')
         elif pretrained_teacher is False:
             def schedule(epoch:int, learing_rate:float):
                 if epoch in [80, 120]:
@@ -1059,4 +1059,4 @@ if __name__ == '__main__':
             validation_data=ds['test']
         )
 
-    run_experiment_cifar10(pretrained_teacher=False)
+    run_experiment_cifar10(pretrained_teacher=True)
