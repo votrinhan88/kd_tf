@@ -972,7 +972,7 @@ if __name__ == '__main__':
         ALPHA, BETA = 0.1, 5
 
         OPTIMIZER_TEACHER = keras.optimizers.SGD(
-            learning_rate=0.1, momentum=0.9, weight_decay=5e-4) # 1e-1 to 1e-2 to 1e-3
+            learning_rate=0.1, momentum=0.9, decay=5e-4) # 1e-1 to 1e-2 to 1e-3
 
         print(' Experiment 4.4: DAFL on MNIST. Teacher: ResNet-34, student: ResNet-18 '.center(80,'#'))
 
@@ -1037,4 +1037,4 @@ if __name__ == '__main__':
         generator = DataFreeGenerator(latent_dim=100, image_dim=[32, 32, 1])
         generator.build()
 
-    run_experiment_cifar10(pretrained_teacher=True)
+    run_experiment_cifar10(pretrained_teacher=False)
