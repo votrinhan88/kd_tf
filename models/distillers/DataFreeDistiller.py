@@ -875,7 +875,7 @@ if __name__ == '__main__':
         teacher.build()
 
         if pretrained_teacher is True:
-            teacher.load_weights('./pretrained/mnist/LeNet-5_ReLU_MaxPool_9908.h5')
+            teacher.load_weights('./pretrained/mnist/mean0_std1/LeNet-5_ReLU_MaxPool_9900.h5')
         elif pretrained_teacher is False:
             best_callback = keras.callbacks.ModelCheckpoint(
                 filepath=f'./logs/{teacher.name}_best.h5',
@@ -932,8 +932,9 @@ if __name__ == '__main__':
         gif_maker = MakeSyntheticGIFCallback(
             filename=f'./logs/{distiller.name}_{student.name}_mnist.gif',
             nrows=5, ncols=5,
-            # postprocess_fn=lambda x:x*0.3081 + 0.1307
-            postprocess_fn=lambda x:x*0.5 + 0.5
+            postprocess_fn=lambda x:x*0.3081 + 0.1307,
+            normalize=False,
+            save_freq=4
         )
 
         distiller.fit(
@@ -943,45 +944,4 @@ if __name__ == '__main__':
             validation_data=ds['test']
         )
 
-    run_experiment_mnist()
-
-    # Experiment 4.1 extended: Data-free learning on MNIST, with confidence.
-    # Train multiple student using data-free learning across a range of
-    # confidence thresholds
-    # student = LeNet_5(half=True)
-    # student.build()
-    # student.compile(metrics='accuracy')
-    # student.evaluate(ds['test'])
-
-    # generator = DataFreeGenerator(latent_dim=100, image_dim=[32, 32, 1])
-    # generator.build()
-
-    # distiller = DataFreeDistiller_Multiple(
-    #     teacher=teacher, student=student, generator=generator
-    # )
-    # optimizer_student = keras.optimizers.Adam(
-    #     learning_rate=LEARNING_RATE_STUDENT, epsilon=1e-8)
-    # optimizer_generator = keras.optimizers.Adam(
-    #     learning_rate=LEARNING_RATE_GENERATOR, epsilon=1e-8)
-    # distiller.compile(
-    #     optimizer_student=optimizer_student,
-    #     optimizer_generator=optimizer_generator,
-    #     onehot_loss_fn=True,
-    #     activation_loss_fn=True,
-    #     info_entropy_loss_fn=True,
-    #     distill_loss_fn=keras.losses.KLDivergence(),
-    #     student_loss_fn=keras.losses.SparseCategoricalCrossentropy(),
-    #     batch_size=512,
-    #     num_batches=5,
-    #     alpha=0.1,
-    #     beta=5.,
-    #     confidence=[None, 0.7, 0.8],
-    #     rebalance=[False, True],
-    # )
-    # distiller.fit(
-    #     epochs=5,
-    #     callbacks=[csv_logger],
-    #     verbose=1,
-    #     shuffle=True,
-    #     validation_data=ds['test']
-    # )
+    run_experiment_mnist(pretrained_teacher=True)

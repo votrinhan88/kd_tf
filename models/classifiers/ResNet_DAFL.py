@@ -17,9 +17,6 @@ else:
 EPSILON = 1e-5
 MOMENTUM = 0.9
 
-# Modified ResNet implementation
-# Source:
-
 class ResidualBasicBlock_DAFL(keras.Model):
     def __init__(self,
                  filters:int=64,
@@ -226,7 +223,6 @@ class ResNet_DAFL(keras.Model):
     @classmethod
     def from_config(cls, config):
         return cls(**config)
-
 
 if __name__ == '__main__':
     net = ResNet_DAFL(ver=34, input_dim=[32, 32, 3], num_classes=10, return_logits=False)
