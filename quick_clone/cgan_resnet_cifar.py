@@ -1,10 +1,8 @@
 # 2019.07.24-Changed output of forward function
 #            Huawei Technologies Co., Ltd. <foss@huawei.com>
 
-import torch
 import torch.nn as nn
 import torch.nn.functional as F
- 
  
 class BasicBlock(nn.Module):
     expansion = 1
