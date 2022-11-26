@@ -15,6 +15,9 @@ class AlexNet(keras.Model):
         `return_logits`: Flag to choose between return logits or probability.
             Defaults to `False`.
     
+    Kwargs:
+        Additional keyword arguments passed to `keras.Model.__init__`.
+    
     Two versions: AlexNet and AlexNet-Half following the architecture in 'Zero-Shot
     Knowledge Distillation in Deep Networks' - Nayak et al. (2019)
     Implementation: https://github.com/nphdang/FS-BBT/blob/main/cifar10/alexnet_model.py
@@ -35,6 +38,9 @@ class AlexNet(keras.Model):
             `num_classes`: Number of output nodes. Defaults to `10`.
             `return_logits`: Flag to choose between return logits or probability.
                 Defaults to `False`.
+        
+        Kwargs:
+            Additional keyword arguments passed to `keras.Model.__init__`.
         """    
         assert isinstance(half, bool), "'half' should be of type bool"
         assert isinstance(return_logits, bool), '`return_logits` must be of type bool.'
@@ -53,34 +59,29 @@ class AlexNet(keras.Model):
         
         # Convolutional blocks
         self.conv_1 = keras.Sequential([
-            keras.layers.Conv2D(filters=48//divisor, kernel_size=(5, 5), strides=(1, 1),
-                padding='same', bias_initializer='zeros'),
+            keras.layers.Conv2D(filters=48//divisor, kernel_size=(5, 5), strides=(1, 1), padding='same', bias_initializer='zeros'),
             keras.layers.Activation(tf.nn.relu),
             keras.layers.MaxPooling2D(pool_size=(3, 3), strides=(2, 2), padding='valid'),
             keras.layers.BatchNormalization()
         ])
         self.conv_2 = keras.Sequential([
-            keras.layers.Conv2D(filters=128//divisor, kernel_size=(5, 5), strides=(1, 1),
-                padding='same', bias_initializer='ones'),
+            keras.layers.Conv2D(filters=128//divisor, kernel_size=(5, 5), strides=(1, 1), padding='same', bias_initializer='ones'),
             keras.layers.Activation(tf.nn.relu),
             keras.layers.MaxPooling2D(pool_size=(3, 3), strides=(2, 2), padding='valid'),
             keras.layers.BatchNormalization()
         ])
         self.conv_3 = keras.Sequential([
-            keras.layers.Conv2D(filters=192//divisor, kernel_size=(3, 3), strides=(1, 1),
-                    padding='same', bias_initializer='zeros'),
+            keras.layers.Conv2D(filters=192//divisor, kernel_size=(3, 3), strides=(1, 1), padding='same', bias_initializer='zeros'),
             keras.layers.Activation(tf.nn.relu),
             keras.layers.BatchNormalization()
         ])
         self.conv_4 = keras.Sequential([
-            keras.layers.Conv2D(filters=192//divisor, kernel_size=(3, 3), strides=(1, 1),
-                    padding='same', bias_initializer='ones'),
+            keras.layers.Conv2D(filters=192//divisor, kernel_size=(3, 3), strides=(1, 1), padding='same', bias_initializer='ones'),
             keras.layers.Activation(tf.nn.relu),
             keras.layers.BatchNormalization()
         ])
         self.conv_5 = keras.Sequential([
-            keras.layers.Conv2D(filters=128//divisor, kernel_size=(3, 3), strides=(1, 1),
-                    padding='same', bias_initializer='ones'),
+            keras.layers.Conv2D(filters=128//divisor, kernel_size=(3, 3), strides=(1, 1), padding='same', bias_initializer='ones'),
             keras.layers.Activation(tf.nn.relu),
             keras.layers.MaxPooling2D(pool_size=(3, 3), strides=(2, 2), padding='valid'),
             keras.layers.BatchNormalization()
@@ -110,7 +111,6 @@ class AlexNet(keras.Model):
             self.logits = keras.layers.Dense(units=self.num_classes, name='logits')
     
     def call(self, inputs, training:bool=False):
-        # x = self.input_layer(inputs)
         x = self.conv_1(inputs, training=training)
         x = self.conv_2(x, training=training)
         x = self.conv_3(x, training=training)
@@ -128,11 +128,20 @@ class AlexNet(keras.Model):
     def build(self):
         super().build(input_shape=[None, *self.input_dim])
 
-    def summary(self, with_graph:bool=False, **kwargs):
+    def summary(self, as_functional:bool=False, **kwargs):
+        """Prints a string summary of the network.
+
+        Args:
+            `as_functional`: Flag to print from a dummy functional model.
+                Defaults to `False`.
+
+        Kwargs:
+            Additional keyword arguments passed to `keras.Model.summary`.
+        """
         inputs = keras.layers.Input(shape=self.input_dim)
         outputs = self.call(inputs)
 
-        if with_graph is True:
+        if as_functional is True:
             dummy_model = keras.Model(inputs=inputs, outputs=outputs, name=self.name)
             dummy_model.summary(**kwargs)
         else:
@@ -169,7 +178,7 @@ if __name__ == '__main__':
         num_classes=10,
     )
     net.build()
-    net.summary(with_graph=True, expand_nested=True, line_length=120)
+    net.summary(as_functional=True, expand_nested=True, line_length=120)
     net.compile(
         metrics=['accuracy'], 
         optimizer=keras.optimizers.Adam(learning_rate=1e-3),

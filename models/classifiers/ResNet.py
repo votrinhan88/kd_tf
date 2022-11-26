@@ -19,10 +19,8 @@ class ResidualBasicBlock(keras.Model):
                  strides:int=1,
                  first_block:bool=False,
                  activation="relu",
-                 *args, **kwargs
-                 ) -> keras.layers.Layer:
-
-        super().__init__(*args, **kwargs)
+                 **kwargs):
+        super().__init__(**kwargs)
         self.filters = filters
         self.strides = strides
         self.activation = activation
@@ -102,12 +100,11 @@ class ResidualLayer(keras.Model):
                  num_units:int,
                  first_block:bool=False,
                  activation="relu",
-                 *args, **kwargs
-                 ) -> keras.Model:
+                 **kwargs):
         assert isinstance(first_block, bool), '`first_block` must be of type bool.'
         assert block_type in ['small', 'large'], "`block_type` must be one of 'small', 'large'."
 
-        super().__init__(*args, **kwargs)
+        super().__init__(**kwargs)
         self.block_type = block_type
         self.filters = filters
         self.num_units = num_units
@@ -138,6 +135,19 @@ class ResidualLayer(keras.Model):
         return x
 
 class ResNet(keras.Model):
+    """Deep Residual Learning for Image Recognition (2015) - He et al.
+    DOI: 10.48550/arXiv.1512.03385
+    
+    Args:
+        `ver`: Version of ResNet, one of [18, 34, 50, 101, 152]. Defaults to `18`.
+        `input_dim`: Dimension of input images. Defaults to `[32, 32, 3]`.
+        `num_classes`: Number of output nodes. Defaults to `10`.
+        `return_logits`: Flag to choose between return logits or probability.
+            Defaults to `False`.
+
+    Kwargs:
+        Additional keyword arguments passed to `keras.Model.__init__`.
+    """    
     _name = 'ResNet'
     block_type = {
         18:  'small',
@@ -160,6 +170,18 @@ class ResNet(keras.Model):
                  num_classes:int=10,
                  return_logits:bool=False,
                  **kwargs):
+        """Initialize model.
+        
+        Args:
+            `ver`: Version of ResNet, one of [18, 34, 50, 101, 152]. Defaults to `18`.
+            `input_dim`: Dimension of input images. Defaults to `[32, 32, 3]`.
+            `num_classes`: Number of output nodes. Defaults to `10`.
+            `return_logits`: Flag to choose between return logits or probability.
+                Defaults to `False`.
+
+        Kwargs:
+            Additional keyword arguments passed to `keras.Model.__init__`.
+        """
         assert ver in [18, 34, 50, 101, 152], f'`ver` must be of [18, 34, 50, 101, 152].'
         assert isinstance(return_logits, bool), '`return_logits` must be of type bool.'
 
@@ -209,29 +231,40 @@ class ResNet(keras.Model):
     def build(self):
         super().build(input_shape=[None, *self.input_dim])
     
-    def summary(self, with_graph:bool=False, **kwargs):
+    def summary(self, as_functional:bool=False, **kwargs):
+        """Prints a string summary of the network.
+
+        Args:
+            `as_functional`: Flag to print from a dummy functional model.
+                Defaults to `False`.
+
+        Kwargs:
+            Additional keyword arguments passed to `keras.Model.summary`.
+        """
         inputs = keras.layers.Input(shape=self.input_dim)
         outputs = self.call(inputs)
 
-        if with_graph is True:
+        if as_functional is True:
             dummy_model = keras.Model(inputs=inputs, outputs=outputs, name=self.name)
             dummy_model.summary(**kwargs)
         else:
             super().summary(**kwargs)
 
     def get_config(self):
-        return {
+        config = super().get_config()
+        config.update({
             'ver': self.ver,
             'input_dim': self.input_dim,
             'num_classes': self.num_classes,
             'return_logits': self.return_logits,
-        }
-
+        })
+        return config
+        
 if __name__ == '__main__':
     net = ResNet(ver=18, input_dim=[256, 256, 3], num_classes=1000)
     net.build()
-    net.summary(with_graph=True, expand_nested=True, line_length=120)
+    net.summary(as_functional=True, expand_nested=True, line_length=120)
 
     net = ResNet(ver=50, input_dim=[256, 256, 3], num_classes=1000)
     net.build()
-    net.summary(with_graph=True, expand_nested=True, line_length=120)
+    net.summary(as_functional=True, expand_nested=True, line_length=120)

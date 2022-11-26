@@ -6,4 +6,4 @@ class Identity(keras.layers.Layer):
         return inputs
     
     def compute_output_shape(self, input_shape):
-        return tf.TensorShape(input_shape)
+        return input_shape

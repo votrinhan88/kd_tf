@@ -1,3 +1,5 @@
+from typing import List
+
 import tensorflow as tf
 keras = tf.keras
 
@@ -7,11 +9,14 @@ class HintonNet(keras.Model):
     DOI: 10.48550/arXiv.1503.02531
 
     Args:
-        `num_inputs`: Number of input nodes. Defaults to `784`.
+        `input_dim`: Dimension of input images. Defaults to `[28, 28, 1]`.
         `num_hiddens`: Number of nodes in each hidden layer. Defaults to `1200`.
         `num_classes`: Number of output nodes. Defaults to `10`.
         `return_logits`: Flag to choose between return logits or probability.
             Defaults to `False`.
+    
+    Kwargs:
+        Additional keyword arguments passed to `keras.Model.__init__`.
 
     Two versions:
     - Teacher: 1200 nodes in each of two hidden layers
@@ -20,7 +25,7 @@ class HintonNet(keras.Model):
     _name = 'HintonNet'
 
     def __init__(self,
-                 num_inputs:int=784,
+                 input_dim:List[int]=[28, 28, 1],
                  num_hiddens:int=1200,
                  num_classes:int=10,
                  return_logits:bool=False,
@@ -28,20 +33,24 @@ class HintonNet(keras.Model):
         """Initialize model.
         
         Args:
-            `num_inputs`: Number of input nodes. Defaults to `784`.
+            `input_dim`: Dimension of input images. Defaults to `[28, 28, 1]`.
             `num_hiddens`: Number of nodes in each hidden layer. Defaults to `1200`.
             `num_classes`: Number of output nodes. Defaults to `10`.
             `return_logits`: Flag to choose between return logits or probability.
                 Defaults to `False`.
+        
+        Kwargs:
+            Additional keyword arguments passed to `keras.Model.__init__`.
         """
         assert isinstance(return_logits, bool), '`return_logits` must be of type bool.'
 
         super().__init__(self, name=self._name, **kwargs)
-        self.num_inputs = num_inputs
+        self.input_dim = input_dim
         self.num_hiddens = num_hiddens
         self.num_classes = num_classes
         self.return_logits = return_logits
 
+        self.flatten      = keras.layers.Flatten()
         self.dense_1      = keras.layers.Dense(units=self.num_hiddens)
         self.leaky_relu_1 = keras.layers.LeakyReLU(alpha=0.3)
         self.dense_2      = keras.layers.Dense(units=self.num_hiddens)
@@ -56,7 +65,8 @@ class HintonNet(keras.Model):
             self.logits = keras.layers.Dense(units=self.num_classes, name='logits')
 
     def call(self, inputs, training:bool=False):
-        x = self.dense_1(inputs)
+        x = self.flatten(inputs)
+        x = self.dense_1(x)
         x = self.leaky_relu_1(x)
         x = self.dense_2(x)
         x = self.leaky_relu_2(x)
@@ -67,13 +77,22 @@ class HintonNet(keras.Model):
         return x
 
     def build(self):
-        super().build(input_shape=[None, self.num_inputs])
+        super().build(input_shape=[None, *self.input_dim])
 
-    def summary(self, with_graph:bool=False, **kwargs):
-        inputs = keras.layers.Input(shape=self.num_inputs)
+    def summary(self, as_functional:bool=False, **kwargs):
+        """Prints a string summary of the network.
+
+        Args:
+            `as_functional`: Flag to print from a dummy functional model.
+                Defaults to `False`.
+
+        Kwargs:
+            Additional keyword arguments passed to `keras.Model.summary`.
+        """
+        inputs = keras.layers.Input(shape=self.input_dim)
         outputs = self.call(inputs)
 
-        if with_graph is True:
+        if as_functional is True:
             dummy_model = keras.Model(inputs=inputs, outputs=outputs, name=self.name)
             dummy_model.summary(**kwargs)
         else:
@@ -106,11 +125,11 @@ if __name__ == '__main__':
     )
 
     net = HintonNet(
-        input_dim=[32, 32, 1],
+        input_dim=[28, 28, 1],
         num_classes=10
     )
     net.build()
-    net.summary()
+    net.summary(as_functional=True, expand_nested=True, line_length=120)
     net.compile(
         metrics=['accuracy'], 
         optimizer=keras.optimizers.Adam(learning_rate=1e-3),

@@ -13,6 +13,9 @@ class LeNet_5(keras.Model):
         `return_logits`: Flag to choose between return logits or probability.
             Defaults to `False`.
 
+    Kwargs:
+        Additional keyword arguments passed to `keras.Model.__init__`.
+
     Two versions: LeNet-5 and LeNet-5-HALF
     Implementation: https://datahacker.rs/lenet-5-implementation-tensorflow-2-0/
     '''
@@ -32,6 +35,9 @@ class LeNet_5(keras.Model):
             `num_classes`: Number of output nodes. Defaults to `10`.
             `return_logits`: Flag to choose between return logits or probability.
                 Defaults to `False`.
+
+        Kwargs:
+            Additional keyword arguments passed to `keras.Model.__init__`.
         """
         assert isinstance(half, bool), '`half` must be of type bool'
         assert isinstance(return_logits, bool), '`return_logits` must be of type bool.'
@@ -80,11 +86,20 @@ class LeNet_5(keras.Model):
     def build(self):
         super().build(input_shape=[None, *self.input_dim])
 
-    def summary(self, with_graph:bool=False, **kwargs):
+    def summary(self, as_functional:bool=False, **kwargs):
+        """Prints a string summary of the network.
+
+        Args:
+            `as_functional`: Flag to print from a dummy functional model.
+                Defaults to `False`.
+
+        Kwargs:
+            Additional keyword arguments passed to `keras.Model.summary`.
+        """
         inputs = keras.layers.Input(shape=self.input_dim)
         outputs = self.call(inputs)
 
-        if with_graph is True:
+        if as_functional is True:
             dummy_model = keras.Model(inputs=inputs, outputs=outputs, name=self.name)
             dummy_model.summary(**kwargs)
         else:
@@ -163,7 +178,7 @@ if __name__ == '__main__':
         num_classes=10
     )
     net.build()
-    net.summary()
+    net.summary(as_functional=True, expand_nested=True, line_length=120)
     net.compile(
         metrics=['accuracy'], 
         optimizer=keras.optimizers.Adam(learning_rate=1e-3),

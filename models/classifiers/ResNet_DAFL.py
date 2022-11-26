@@ -9,24 +9,26 @@ if __name__ == '__main__':
     assert os.path.basename(repo_path) == 'kd_tf', "Wrong parent folder. Please change to 'kd_tf'"
     sys.path.append(repo_path)
 
+    from models.classifiers.ResNet import (
+        ResidualBasicBlock, ResidualBottleneck, ResidualLayer, ResNet)
     from models.classifiers.utils import Identity
 else:
     from .utils import Identity
+    from .ResNet import (
+        ResidualBasicBlock, ResidualBottleneck, ResidualLayer, ResNet)
 
 # Equivalent hyperparameters for BatchNorm layer from PyTorch
 EPSILON = 1e-5
 MOMENTUM = 0.9
 
-class ResidualBasicBlock_DAFL(keras.Model):
+class ResidualBasicBlock_DAFL(ResidualBasicBlock):
     def __init__(self,
                  filters:int=64,
                  strides:int=1,
                  first_block:bool=False,
                  activation="relu",
-                 *args, **kwargs
-                 ) -> keras.layers.Layer:
-
-        super().__init__(*args, **kwargs)
+                 **kwargs):
+        keras.Model.__init__(self, **kwargs)
         self.filters = filters
         self.strides = strides
         self.activation = activation
@@ -51,21 +53,16 @@ class ResidualBasicBlock_DAFL(keras.Model):
                 keras.layers.BatchNormalization(momentum=MOMENTUM, epsilon=EPSILON)
             ])
 
-    def call(self, inputs):
-        main_x = self.main_layers(inputs)
-        skip_x = self.skip_layers(inputs)
-        x = keras.layers.Activation(self.activation)(main_x + skip_x)
-        return x
-
-class ResidualBottleneck_DAFL(keras.Model):
+        self.connect = keras.layers.Activation(self.activation)
+        
+class ResidualBottleneck_DAFL(ResidualBottleneck):
     def __init__(self,
                  filters:int=64,
                  strides:int=1,
                  first_block:bool=False,
                  activation="relu",
-                 *args, **kwargs
-                 ) -> keras.layers.Layer:
-        super().__init__(*args, **kwargs)
+                 **kwargs):
+        keras.Model.__init__(self, **kwargs)
         self.filters = filters
         self.strides = strides
         self.first_block = first_block
@@ -91,25 +88,20 @@ class ResidualBottleneck_DAFL(keras.Model):
                 keras.layers.BatchNormalization(momentum=MOMENTUM, epsilon=EPSILON)
             ])
 
-    def call(self, inputs):
-        main_x = self.main_layers(inputs)
-        skip_x = self.skip_layers(inputs)
-        x = keras.layers.Activation(self.activation)(main_x + skip_x)
-        return x
+        self.connect = keras.layers.Activation(self.activation)
 
-class ResidualLayer_DAFL(keras.Model):
+class ResidualLayer_DAFL(ResidualLayer):
     def __init__(self,
                  filters:int,
                  block_type:Literal['small', 'large'],
                  num_units:int,
                  first_block:bool=False,
                  activation="relu",
-                 *args, **kwargs
-                 ) -> keras.Model:
+                 **kwargs):
         assert isinstance(first_block, bool), '`first_block` must be of type bool.'
         assert block_type in ['small', 'large'], "`block_type` must be one of 'small', 'large'."
 
-        super().__init__(*args, **kwargs)
+        keras.Model.__init__(self, **kwargs)
         self.block_type = block_type
         self.filters = filters
         self.num_units = num_units
@@ -134,49 +126,28 @@ class ResidualLayer_DAFL(keras.Model):
         for unit in range(self.num_units - 1):
             self.blocks.append(Block(strides=1, **res_unit_params))
         self.blocks = keras.Sequential(self.blocks)
-        
-    def call(self, inputs):
-        x = self.blocks(inputs)
-        return x
 
-class ResNet_DAFL(keras.Model):
+class ResNet_DAFL(ResNet):
     _name = 'ResNet-DAFL'
-    block_type = {
-        18:  'small',
-        34:  'small',
-        50:  'large',
-        101: 'large',
-        152: 'large',
-    }
-    num_units = {
-        18:  [2, 2, 2, 2],
-        34:  [3, 4, 6, 3],
-        50:  [3, 4, 6, 3],
-        101: [3, 4, 23, 3],
-        152: [3, 8, 36, 3]
-    }
-
     def __init__(self,
                  ver:Literal[18, 34, 50, 101, 152]=18,
                  input_dim:List[int]=[32, 32, 3],
                  num_classes:int=10,
                  return_logits:bool=False,
-                 *args, **kwargs):
+                 **kwargs):
         assert ver in [18, 34, 50, 101, 152], f'`ver` must be of [18, 34, 50, 101, 152].'
         assert isinstance(return_logits, bool), '`return_logits` must be of type bool.'
 
-        super().__init__(name=f'{self._name}-{ver}', *args, **kwargs)
+        keras.Model.__init__(self, name=f'{self._name}-{ver}', **kwargs)
         self.ver = ver
         self.input_dim = input_dim
         self.num_classes = num_classes
         self.return_logits = return_logits
         self.l2_regu = keras.regularizers.L2(l2=5e-4)
 
-        # Workaround to access first layer's input (cannot access sub-module of
-        # subclassed models)
         self.conv_1 = keras.Sequential(
             layers=[
-                keras.layers.Conv2D(64, kernel_size=3, strides=1, padding="same", use_bias=False,     kernel_regularizer=self.l2_regu, bias_regularizer=self.l2_regu),
+                keras.layers.Conv2D(64, kernel_size=3, strides=1, padding="same", use_bias=False, kernel_regularizer=self.l2_regu, bias_regularizer=self.l2_regu),
                 keras.layers.BatchNormalization(momentum=MOMENTUM, epsilon=EPSILON),
                 keras.layers.Activation(tf.nn.relu),
             ],
@@ -194,49 +165,19 @@ class ResNet_DAFL(keras.Model):
         elif self.return_logits is True:
             self.logits = keras.layers.Dense(units=self.num_classes, name='logits',     kernel_regularizer=self.l2_regu, bias_regularizer=self.l2_regu)
 
-    def call(self, inputs):
-        x = self.conv_1(inputs)
-        x = self.conv_2(x)
-        x = self.conv_3(x)
-        x = self.conv_4(x)
-        x = self.conv_5(x)
-        x = self.glb_pool(x)
         if self.return_logits is False:
-            x = self.pred(x)
+            if self.num_classes == 1:
+                self.pred = keras.layers.Dense(units=self.num_classes, name='pred', activation=tf.nn.sigmoid, kernel_regularizer=self.l2_regu, bias_regularizer=self.l2_regu)
+            elif self.num_classes > 1:
+                self.pred = keras.layers.Dense(units=self.num_classes, name='pred', activation=tf.nn.softmax, kernel_regularizer=self.l2_regu, bias_regularizer=self.l2_regu)
         elif self.return_logits is True:
-            x = self.logits(x)
-        return x
-
-    def build(self):
-        super().build(input_shape=[None, *self.input_dim])
-    
-    def summary(self, with_graph:bool=False, **kwargs):
-        inputs = keras.layers.Input(shape=self.input_dim)
-        outputs = self.call(inputs)
-
-        if with_graph is True:
-            dummy_model = keras.Model(inputs=inputs, outputs=outputs, name=self.name)
-            dummy_model.summary(**kwargs)
-        else:
-            super().summary(**kwargs)
-
-    def get_config(self):
-        return {
-            'ver': self.ver,
-            'input_dim': self.input_dim,
-            'num_classes': self.num_classes,
-            'return_logits': self.return_logits,
-        }
-
-    @classmethod
-    def from_config(cls, config):
-        return cls(**config)
+            self.pred = keras.layers.Dense(units=self.num_classes, name='pred', kernel_regularizer=self.l2_regu, bias_regularizer=self.l2_regu)
 
 if __name__ == '__main__':
     net = ResNet_DAFL(ver=34, input_dim=[32, 32, 3], num_classes=10, return_logits=False)
     net.build()
-    net.summary(expand_nested=True, line_length=100)
+    net.summary(as_functional=True, expand_nested=True, line_length=100)
 
     net = ResNet_DAFL(ver=50, input_dim=[32, 32, 3], num_classes=10, return_logits=False)
     net.build()
-    net.summary(expand_nested=True, line_length=100)
+    net.summary(as_functional=True, expand_nested=True, line_length=100)
