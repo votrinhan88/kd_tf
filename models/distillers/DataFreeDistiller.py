@@ -847,7 +847,7 @@ if __name__ == '__main__':
         OPTIMIZER_TEACHER = keras.optimizers.Adam(learning_rate=1e-3, epsilon=1e-8)
         OPTIMIZER_GENERATOR = keras.optimizers.Adam(learning_rate=2e-1, epsilon=1e-8)
         OPTIMIZER_STUDENT = keras.optimizers.Adam(learning_rate=2e-3, epsilon=1e-8)
-        ALPHA, BETA = 0.1, 5
+        COEFF_OH, COEFF_AC, COEFF_IE = 1, 0.1, 5
         
         print(' Experiment 4.1: DAFL on MNIST. Teacher: LeNet-5, student: LeNet-5-HALF '.center(80,'#'))
         ds = dataloader(
@@ -912,8 +912,9 @@ if __name__ == '__main__':
             student_loss_fn=keras.losses.SparseCategoricalCrossentropy(),
             batch_size=BATCH_SIZE_DISTILL,
             num_batches=120,
-            alpha=ALPHA,
-            beta=BETA,
+            coeff_oh=COEFF_OH,
+            coeff_ac=COEFF_AC,
+            coeff_ie=COEFF_IE,
             confidence=None
         )
 
@@ -949,7 +950,7 @@ if __name__ == '__main__':
         NUM_CLASSES = 10
         BATCH_SIZE_TEACHER, BATCH_SIZE_DISTILL = 128, 1024
         NUM_EPOCHS_TEACHER, NUM_EPOCHS_DISTILL = 200, 2000
-        ALPHA, BETA = 0.1, 5
+        COEFF_OH, COEFF_AC, COEFF_IE = 0.05, 0.01, 5
 
         OPTIMIZER_TEACHER = keras.optimizers.SGD(
             learning_rate=0.1, momentum=0.9, decay=5e-4) # 1e-1 to 1e-2 to 1e-3
@@ -1031,8 +1032,9 @@ if __name__ == '__main__':
             student_loss_fn=keras.losses.SparseCategoricalCrossentropy(),
             batch_size=BATCH_SIZE_DISTILL,
             num_batches=120,
-            alpha=ALPHA,
-            beta=BETA,
+            coeff_oh=COEFF_OH,
+            coeff_ac=COEFF_AC,
+            coeff_ie=COEFF_IE,
             confidence=None
         )
 
@@ -1060,4 +1062,4 @@ if __name__ == '__main__':
             validation_data=ds['test']
         )
 
-    run_experiment_cifar10(pretrained_teacher=False)
+    run_experiment_mnist(pretrained_teacher=True)

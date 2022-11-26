@@ -33,13 +33,12 @@ class ResidualBasicBlock_DAFL(keras.Model):
         self.first_block = first_block # Unused
 
         self.activation_layer = keras.activations.get(activation)
-        self.l2_regu = keras.regularizers.L2(l2=5e-4)
 
         self.main_layers = keras.Sequential([
-            keras.layers.Conv2D(filters=self.filters, kernel_size=3, strides=self.strides, padding='same', use_bias=False, kernel_constraint=self.l2_regu, bias_constraint=self.l2_regu),
+            keras.layers.Conv2D(filters=self.filters, kernel_size=3, strides=self.strides, padding='same', use_bias=False, kernel_constraint=keras.regularizers.L2(l2=5e-4), bias_constraint=keras.regularizers.L2(l2=5e-4)),
             keras.layers.BatchNormalization(momentum=MOMENTUM, epsilon=EPSILON),
             keras.layers.Activation(self.activation),
-            keras.layers.Conv2D(filters=self.filters, kernel_size=3, strides=1, padding='same', use_bias=False, kernel_constraint=self.l2_regu, bias_constraint=self.l2_regu),
+            keras.layers.Conv2D(filters=self.filters, kernel_size=3, strides=1, padding='same', use_bias=False,     kernel_constraint=keras.regularizers.L2(l2=5e-4), bias_constraint=keras.regularizers.L2(l2=5e-4)),
             keras.layers.BatchNormalization(momentum=MOMENTUM, epsilon=EPSILON)
         ])
 
@@ -47,7 +46,7 @@ class ResidualBasicBlock_DAFL(keras.Model):
             self.skip_layers = keras.Sequential([Identity()])
         elif self.strides > 1:
             self.skip_layers = keras.Sequential([
-                keras.layers.Conv2D(filters=self.filters, kernel_size=1, strides=self.strides, padding='same', use_bias=False, kernel_constraint=self.l2_regu, bias_constraint=self.l2_regu),
+                keras.layers.Conv2D(filters=self.filters, kernel_size=1, strides=self.strides, padding='same', use_bias=False,     kernel_constraint=keras.regularizers.L2(l2=5e-4), bias_constraint=keras.regularizers.L2(l2=5e-4)),
                 keras.layers.BatchNormalization(momentum=MOMENTUM, epsilon=EPSILON)
             ])
 
@@ -73,13 +72,13 @@ class ResidualBottleneck_DAFL(keras.Model):
         self.l2_regu = keras.regularizers.L2(l2=5e-4)
 
         self.main_layers = keras.Sequential([
-            keras.layers.Conv2D(filters=self.filters, kernel_size=1, strides=1, padding='valid', use_bias=False, kernel_constraint=self.l2_regu, bias_constraint=self.l2_regu),
+            keras.layers.Conv2D(filters=self.filters, kernel_size=1, strides=1, padding='valid', use_bias=False,     kernel_constraint=keras.regularizers.L2(l2=5e-4), bias_constraint=keras.regularizers.L2(l2=5e-4)),
             keras.layers.BatchNormalization(momentum=MOMENTUM, epsilon=EPSILON),
             keras.layers.Activation(self.activation),
-            keras.layers.Conv2D(filters=self.filters, kernel_size=3, strides=self.strides, padding='same', use_bias=False, kernel_constraint=self.l2_regu, bias_constraint=self.l2_regu),
+            keras.layers.Conv2D(filters=self.filters, kernel_size=3, strides=self.strides, padding='same', use_bias=False,     kernel_constraint=keras.regularizers.L2(l2=5e-4), bias_constraint=keras.regularizers.L2(l2=5e-4)),
             keras.layers.BatchNormalization(momentum=MOMENTUM, epsilon=EPSILON),
             keras.layers.Activation(self.activation),
-            keras.layers.Conv2D(filters=4*self.filters, kernel_size=1, strides=1, padding='valid', use_bias=False, kernel_constraint=self.l2_regu, bias_constraint=self.l2_regu),
+            keras.layers.Conv2D(filters=4*self.filters, kernel_size=1, strides=1, padding='valid', use_bias=False,     kernel_constraint=keras.regularizers.L2(l2=5e-4), bias_constraint=keras.regularizers.L2(l2=5e-4)),
             keras.layers.BatchNormalization(momentum=MOMENTUM, epsilon=EPSILON)
         ])
 
@@ -87,7 +86,7 @@ class ResidualBottleneck_DAFL(keras.Model):
             self.skip_layers = Identity()
         elif (self.strides > 1) | (self.first_block is True):
             self.skip_layers = keras.Sequential([
-                keras.layers.Conv2D(filters=4*self.filters, kernel_size=1, strides=self.strides, padding='valid', use_bias=False, kernel_constraint=self.l2_regu, bias_constraint=self.l2_regu),
+                keras.layers.Conv2D(filters=4*self.filters, kernel_size=1, strides=self.strides, padding='valid', use_bias=False,     kernel_constraint=keras.regularizers.L2(l2=5e-4), bias_constraint=keras.regularizers.L2(l2=5e-4)),
                 keras.layers.BatchNormalization(momentum=MOMENTUM, epsilon=EPSILON)
             ])
 
@@ -178,7 +177,7 @@ class ResNet_DAFL(keras.Model):
 
         self.conv_1 = keras.Sequential(
             layers=[
-                keras.layers.Conv2D(64, kernel_size=3, strides=1, padding="same", use_bias=False, kernel_constraint=self.l2_regu, bias_constraint=self.l2_regu),
+                keras.layers.Conv2D(64, kernel_size=3, strides=1, padding="same", use_bias=False,     kernel_constraint=keras.regularizers.L2(l2=5e-4), bias_constraint=keras.regularizers.L2(l2=5e-4)),
                 keras.layers.BatchNormalization(momentum=MOMENTUM, epsilon=EPSILON),
                 keras.layers.Activation(tf.nn.relu),
             ],
@@ -192,9 +191,9 @@ class ResNet_DAFL(keras.Model):
         self.glb_pool = keras.layers.GlobalAvgPool2D(name='glb_pool')
                 
         if self.return_logits is False:
-            self.pred = keras.layers.Dense(units=self.num_classes, name='pred', activation=tf.nn.softmax, kernel_constraint=self.l2_regu, bias_constraint=self.l2_regu)
+            self.pred = keras.layers.Dense(units=self.num_classes, name='pred', activation=tf.nn.softmax,     kernel_constraint=keras.regularizers.L2(l2=5e-4), bias_constraint=keras.regularizers.L2(l2=5e-4))
         elif self.return_logits is True:
-            self.logits = keras.layers.Dense(units=self.num_classes, name='logits', kernel_constraint=self.l2_regu, bias_constraint=self.l2_regu)
+            self.logits = keras.layers.Dense(units=self.num_classes, name='logits',     kernel_constraint=keras.regularizers.L2(l2=5e-4), bias_constraint=keras.regularizers.L2(l2=5e-4))
 
     def call(self, inputs):
         x = self.input_layer(inputs)
