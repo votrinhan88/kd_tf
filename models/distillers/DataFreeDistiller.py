@@ -183,8 +183,9 @@ class DataFreeDistiller(keras.Model):
                 student_loss_fn:keras.losses.Loss=keras.losses.SparseCategoricalCrossentropy(),
                 batch_size:int=512,
                 num_batches:int=120,
-                alpha:float=0.1,
-                beta:float=5,
+                coeff_oh:float=1,
+                coeff_ac:float=0.1,
+                coeff_ie:float=5,
                 confidence:float=None,
                 **kwargs):
         """Compile distiller.
@@ -220,10 +221,8 @@ class DataFreeDistiller(keras.Model):
                 Defaults to `keras.losses.SparseCategoricalCrossentropy()`.
             `batch_size`: Size of each synthetic batch. Defaults to `512`.
             `num_batches`: Number of training batches each epoch. Defaults to `120`.
-            `alpha`: Coefficient of activation loss. Defaults to `0.1`.
+            `coeff_ac`: Coefficient of activation loss. Defaults to `0.1`.
             `beta`: Coefficient of information entropy loss. Defaults to `5`.
-            `temperature`: Temperature for label smoothing during distillation.
-                Defaults to `1`.
             `confidence`: Confidence threshold for filtering out low-quality synthetic
             images (evaluated by the teacher) before distillation.
                 Options:
@@ -249,9 +248,9 @@ class DataFreeDistiller(keras.Model):
         self.distill_loss_fn = distill_loss_fn
         self.batch_size = batch_size
         self.num_batches = num_batches
-        self.alpha = alpha
-        self.beta = beta
-        # self.temperature = temperature
+        self.coeff_oh = coeff_oh
+        self.coeff_ac = coeff_ac
+        self.coeff_ie = coeff_ie
         self.confidence = confidence
 
         # Config one-hot loss
@@ -321,7 +320,7 @@ class DataFreeDistiller(keras.Model):
             tape.watch(self.generator.trainable_variables)
             tape.watch(self.student.trainable_variables)
 
-            # Phase 1 - Training the Generator
+            # Phase 1: Training the Generator
             latent_noise = tf.random.normal(shape=[self.batch_size, self.latent_dim])
             x_synth = self.generator(latent_noise, training=True)
             teacher_prob, teacher_fmap = self.teacher(x_synth, training=False)
@@ -330,7 +329,7 @@ class DataFreeDistiller(keras.Model):
             loss_onehot = self._onehot_loss_fn(pseudo_label, teacher_prob)
             loss_activation = self._activation_loss_fn(teacher_fmap)
             loss_info_entropy = self._info_entropy_loss_fn(teacher_prob)
-            loss_generator = loss_onehot + self.alpha*loss_activation + self.beta*loss_info_entropy
+            loss_generator = self.coeff_oh*loss_onehot + self.coeff_ac*loss_activation + self.coeff_ie*loss_info_entropy
             
             # Phase 2: Training the student network.
             # Detach gradient graph of generator and teacher
@@ -366,7 +365,7 @@ class DataFreeDistiller(keras.Model):
         return results
 
     def train_batch_exact(self, data):
-        # Phase 1 - Training the Generator
+        # Phase 1: Training the Generator
         with tf.GradientTape(persistent=True, watch_accessed_variables=False) as tape:
             # Specify trainable variables
             tape.watch(self.generator.trainable_variables)
@@ -379,7 +378,7 @@ class DataFreeDistiller(keras.Model):
             loss_onehot = self._onehot_loss_fn(pseudo_label, teacher_prob)
             loss_activation = self._activation_loss_fn(teacher_fmap)
             loss_info_entropy = self._info_entropy_loss_fn(teacher_prob)           
-            loss_generator = loss_onehot + self.alpha*loss_activation + self.beta*loss_info_entropy
+            loss_generator = self.coeff_oh*loss_onehot + self.coeff_ac*loss_activation + self.coeff_ie*loss_info_entropy
         
         # Back-propagation of Generator
         generator_vars = self.generator.trainable_variables
@@ -397,10 +396,6 @@ class DataFreeDistiller(keras.Model):
             pseudo_label = tf.math.argmax(input=teacher_prob, axis=1)
 
             student_prob = self.student(x_synth, training=True)
-            # Compute scaled distillation loss from https://arxiv.org/abs/1503.02531
-            # The magnitudes of the gradients produced by the soft targets scale
-            # as 1/T^2, multiply them by T^2 when using both hard and soft targets.
-            # Current unapplicable: only T = 1
             loss_distill = self.distill_loss_fn(teacher_prob, student_prob)
 
         # Back-propagation of Student
@@ -832,19 +827,6 @@ if __name__ == '__main__':
     from models.distillers.utils import CSVLogger_custom, add_fmap_output
     from models.GANs.utils import MakeSyntheticGIFCallback
 
-    # Hyperparameters
-    ## Model
-    LATENT_DIM = 100
-    IMAGE_DIM = [32, 32, 1]
-    ALPHA = 0.1
-    BETA = 5
-    TEMPERATURE = 1
-    ## Training
-    LEARNING_RATE_STUDENT = 2e-3
-    LEARNING_RATE_GENERATOR = 0.2
-    BATCH_SIZE = 512
-    NUM_EPOCHS = 200
-
     def run_experiment_mnist(pretrained_teacher:bool=False):
         # Experiment 4.1: Classification result on the MNIST dataset
         #                                       LeNet-5        HintonNets
@@ -967,12 +949,14 @@ if __name__ == '__main__':
         NUM_CLASSES = 10
         BATCH_SIZE_TEACHER, BATCH_SIZE_DISTILL = 128, 1024
         NUM_EPOCHS_TEACHER, NUM_EPOCHS_DISTILL = 200, 2000
-        OPTIMIZER_GENERATOR = keras.optimizers.Adam(learning_rate=2e-2, epsilon=1e-8)
-        OPTIMIZER_STUDENT = keras.optimizers.Adam(learning_rate=2e-1, epsilon=1e-8)
         ALPHA, BETA = 0.1, 5
 
         OPTIMIZER_TEACHER = keras.optimizers.SGD(
             learning_rate=0.1, momentum=0.9, decay=5e-4) # 1e-1 to 1e-2 to 1e-3
+
+        OPTIMIZER_GENERATOR = keras.optimizers.Adam(learning_rate=2e-2, epsilon=1e-8)
+        OPTIMIZER_STUDENT = keras.optimizers.Adam(learning_rate=1e-1, epsilon=1e-8)
+
 
         print(' Experiment 4.4: DAFL on MNIST. Teacher: ResNet-34, student: ResNet-18 '.center(80,'#'))
 
@@ -1000,13 +984,10 @@ if __name__ == '__main__':
         if pretrained_teacher is True:
             teacher.load_weights('')
         elif pretrained_teacher is False:
-            def schedule(epoch, learning_rate):
-                if epoch < 80:
-                    return 0.1
-                elif epoch < 120:
-                    return 0.01
-                else:
-                    return 0.001
+            def schedule(epoch:int, learing_rate:float):
+                if epoch in [80, 120]:
+                    learing_rate = learing_rate*0.1
+                return learing_rate
             lr_scheduler = keras.callbacks.LearningRateScheduler(schedule)
             best_callback = keras.callbacks.ModelCheckpoint(
                 filepath=f'./logs/{teacher.name}_best.h5',
@@ -1029,12 +1010,54 @@ if __name__ == '__main__':
         teacher = add_fmap_output(model=teacher, fmap_layer='flatten')
 
         # Student (ResNet-18)
-        student = ResNet_DAFL(ver=18, input_dim=[32, 32, 3], num_classes=10)
+        student = ResNet_DAFL(ver=18, input_dim=IMAGE_DIM, num_classes=NUM_CLASSES)
         student.build()
         student.compile(metrics='accuracy')
         student.evaluate(ds['test'])
 
-        generator = DataFreeGenerator(latent_dim=100, image_dim=[32, 32, 1])
+        generator = DataFreeGenerator(latent_dim=LATENT_DIM, image_dim=IMAGE_DIM)
         generator.build()
+
+        # Train one student with default data-free learning settings
+        distiller = DataFreeDistiller(
+            teacher=teacher, student=student, generator=generator)
+        distiller.compile(
+            optimizer_student=OPTIMIZER_STUDENT,
+            optimizer_generator=OPTIMIZER_GENERATOR,
+            onehot_loss_fn=True,
+            activation_loss_fn=True,
+            info_entropy_loss_fn=True,
+            distill_loss_fn=keras.losses.KLDivergence(),
+            student_loss_fn=keras.losses.SparseCategoricalCrossentropy(),
+            batch_size=BATCH_SIZE_DISTILL,
+            num_batches=120,
+            alpha=ALPHA,
+            beta=BETA,
+            confidence=None
+        )
+
+        def schedule(epoch:int, learing_rate:float):
+            if epoch in [800, 1600]:
+                learing_rate = learing_rate*0.1
+            return learing_rate
+        lr_scheduler = keras.callbacks.LearningRateScheduler(schedule)
+        csv_logger = CSVLogger_custom(
+            filename=f'./logs/{distiller.name}_{student.name}_mnist.csv',
+            append=True
+        )
+        gif_maker = MakeSyntheticGIFCallback(
+            filename=f'./logs/{distiller.name}_{student.name}_mnist.gif',
+            nrows=5, ncols=5,
+            postprocess_fn=lambda x:x*0.3081 + 0.1307,
+            normalize=False,
+            save_freq=NUM_EPOCHS_DISTILL//50
+        )
+
+        distiller.fit(
+            epochs=NUM_EPOCHS_DISTILL,
+            callbacks=[lr_scheduler, csv_logger, gif_maker],
+            shuffle=True,
+            validation_data=ds['test']
+        )
 
     run_experiment_cifar10(pretrained_teacher=False)
