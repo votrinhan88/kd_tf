@@ -92,9 +92,19 @@ def dataloader(dataset:str,
     if augmentation_fn is None:
         augmentation_fn = lambda x:x
 
-    def preprocess(x, y):
+    def train_preprocess(x, y):
         x = tf.cast(x, tf.float32)/255
         x = augmentation_fn(x)
+        if resize is not None:
+            x = tf.image.resize(images=x, size=resize)
+        x = (x - mean)/std
+        y = tf.cast(y, tf.int32)
+        if onehot_label is True:
+            y = tf.one_hot(indices=y, depth=num_classes)
+        return x, y
+    
+    def test_preprocess(x, y):
+        x = tf.cast(x, tf.float32)/255
         if resize is not None:
             x = tf.image.resize(images=x, size=resize)
         x = (x - mean)/std
@@ -108,14 +118,14 @@ def dataloader(dataset:str,
         .cache()                                                                    # Cache data
         .shuffle(50000)
         .batch(batch_size_train, drop_remainder=drop_remainder)                     # Vectorize your mapped function
-        .map(preprocess, num_parallel_calls=tf.data.AUTOTUNE)                       # Reduce memory usage
+        .map(train_preprocess, num_parallel_calls=tf.data.AUTOTUNE)                 # Reduce memory usage
         # .map(time_consuming_map, num_parallel_calls=tf.data.AUTOTUNE)             # Parallelize map transformation
         .prefetch(tf.data.AUTOTUNE))                                                # Overlap producer and consumer works
     ds['test'] = (ds['test']
         # .interleave(batch_size_test, num_parallel_calls=tf.data.AUTOTUNE)         # Parallelize data reading
         .cache()                                                                    # Cache data
         .batch(batch_size_test, drop_remainder=drop_remainder)                      # Vectorize your mapped function
-        .map(preprocess, num_parallel_calls=tf.data.AUTOTUNE)                       # Reduce memory usage
+        .map(test_preprocess, num_parallel_calls=tf.data.AUTOTUNE)                       # Reduce memory usage
         .prefetch(tf.data.AUTOTUNE))                                                # Overlap producer and consumer works
     
     if with_info is False:
