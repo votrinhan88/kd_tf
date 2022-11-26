@@ -828,7 +828,8 @@ class DataFreeDistiller_Multiple(keras.Model):
 if __name__ == '__main__':
     from dataloader import dataloader
     from models.classifiers.LeNet_5 import LeNet_5_ReLU_MaxPool
-    from models.distillers.utils import CSVLogger_custom, ThresholdStopping, add_fmap_output
+    from models.classifiers.ResNet_DAFL import ResNet_DAFL
+    from models.distillers.utils import CSVLogger_custom, add_fmap_output
     from models.GANs.utils import MakeSyntheticGIFCallback
 
     # Hyperparameters
@@ -856,21 +857,30 @@ if __name__ == '__main__':
         # KD with meta-data KD:                 92.47%         91.24%
         # KD with alternative dataset USPS:     94.56%         93.99%
         # Data-free KD:                         98.20%         97.91%    
-        print(' Experiment 4.1: Classification result on the MNIST dataset '.center(80,'#'))
-
+        LATENT_DIM = 100
+        IMAGE_DIM = [32, 32, 1]
+        NUM_CLASSES = 10
+        BATCH_SIZE_TEACHER, BATCH_SIZE_DISTILL = 256, 512
+        NUM_EPOCHS_TEACHER, NUM_EPOCHS_DISTILL = 10, 200
+        OPTIMIZER_TEACHER = keras.optimizers.Adam(learning_rate=1e-3, epsilon=1e-8)
+        OPTIMIZER_GENERATOR = keras.optimizers.Adam(learning_rate=2e-1, epsilon=1e-8)
+        OPTIMIZER_STUDENT = keras.optimizers.Adam(learning_rate=2e-3, epsilon=1e-8)
+        ALPHA, BETA = 0.1, 5
+        
+        print(' Experiment 4.1: DAFL on MNIST. Teacher: LeNet-5, student: LeNet-5-HALF '.center(80,'#'))
         ds = dataloader(
             dataset='mnist',
-            resize=[32, 32],
+            resize=IMAGE_DIM[0:-1],
             rescale='standardization',
-            batch_size_train=256,
+            batch_size_train=BATCH_SIZE_TEACHER,
             batch_size_test=1024
         )
 
-        # Pretrained teacher
-        teacher = LeNet_5_ReLU_MaxPool()
+        # Teacher (LeNet-5)
+        teacher = LeNet_5_ReLU_MaxPool(input_dim=IMAGE_DIM, num_classes=NUM_CLASSES)
         teacher.compile(
             metrics=['accuracy'], 
-            optimizer=keras.optimizers.Adam(learning_rate=1e-3),
+            optimizer=OPTIMIZER_TEACHER,
             loss=keras.losses.SparseCategoricalCrossentropy())
         teacher.build()
 
@@ -889,7 +899,7 @@ if __name__ == '__main__':
             )
             teacher.fit(
                 ds['train'],
-                epochs=10,
+                epochs=NUM_EPOCHS_TEACHER,
                 callbacks=[best_callback, csv_logger],
                 shuffle=True,
                 validation_data=ds['test']
@@ -899,29 +909,29 @@ if __name__ == '__main__':
         teacher = add_fmap_output(model=teacher, fmap_layer='flatten')
 
         # Student (LeNet-5-HALF)
-        student = LeNet_5_ReLU_MaxPool(half=True)
+        student = LeNet_5_ReLU_MaxPool(half=True, input_dim=IMAGE_DIM, num_classes=NUM_CLASSES)
         student.build()
         student.compile(metrics='accuracy')
         student.evaluate(ds['test'])
 
-        generator = DataFreeGenerator(latent_dim=100, image_dim=[32, 32, 1])
+        generator = DataFreeGenerator(latent_dim=LATENT_DIM, image_dim=IMAGE_DIM)
         generator.build()
 
         # Train one student with default data-free learning settings
         distiller = DataFreeDistiller(
             teacher=teacher, student=student, generator=generator)
         distiller.compile(
-            optimizer_student=keras.optimizers.Adam(learning_rate=2e-3, epsilon=1e-8),
-            optimizer_generator=keras.optimizers.Adam(learning_rate=0.2, epsilon=1e-8),
+            optimizer_student=OPTIMIZER_STUDENT,
+            optimizer_generator=OPTIMIZER_GENERATOR,
             onehot_loss_fn=True,
             activation_loss_fn=True,
             info_entropy_loss_fn=True,
             distill_loss_fn=keras.losses.KLDivergence(),
             student_loss_fn=keras.losses.SparseCategoricalCrossentropy(),
-            batch_size=512,
+            batch_size=BATCH_SIZE_DISTILL,
             num_batches=120,
-            alpha=0.1,
-            beta=5,
+            alpha=ALPHA,
+            beta=BETA,
             confidence=None
         )
 
@@ -934,14 +944,97 @@ if __name__ == '__main__':
             nrows=5, ncols=5,
             postprocess_fn=lambda x:x*0.3081 + 0.1307,
             normalize=False,
-            save_freq=4
+            save_freq=NUM_EPOCHS_DISTILL//50
         )
 
         distiller.fit(
-            epochs=200,
+            epochs=NUM_EPOCHS_DISTILL,
             callbacks=[csv_logger, gif_maker],
             shuffle=True,
             validation_data=ds['test']
         )
 
-    run_experiment_mnist(pretrained_teacher=True)
+    def run_experiment_cifar10(pretrained_teacher:bool=False):
+        # Algorithm                     Required data   FLOPS   params  CIFAR-10  CIFAR-100
+        # Teacher                       Original data   16G     21M     95.58%    77.84%
+        # Standard back-propagation     Original data   557M    11M     93.92%    76.53%
+        # Knowledge Distillation [8]    Original data   557M    11M     94.34%    76.87%
+        # Normal distribution           No data         557M    11M     14.89%     1.44%
+        # Alternative data              Similar data    557M    11M     90.65%    69.88%
+        # Data-Free Learning (DAFL)     No data         557M    11M     92.22%    74.47%
+        LATENT_DIM = 1000
+        IMAGE_DIM = [32, 32, 3]
+        NUM_CLASSES = 10
+        BATCH_SIZE_TEACHER, BATCH_SIZE_DISTILL = 128, 1024
+        NUM_EPOCHS_TEACHER, NUM_EPOCHS_DISTILL = 200, 2000
+        OPTIMIZER_GENERATOR = keras.optimizers.Adam(learning_rate=2e-2, epsilon=1e-8)
+        OPTIMIZER_STUDENT = keras.optimizers.Adam(learning_rate=2e-1, epsilon=1e-8)
+        ALPHA, BETA = 0.1, 5
+
+        OPTIMIZER_TEACHER = keras.optimizers.SGD(
+            learning_rate=0.1, momentum=0.9, weight_decay=5e-4) # 1e-1 to 1e-2 to 1e-3
+
+        print(' Experiment 4.4: DAFL on MNIST. Teacher: ResNet-34, student: ResNet-18 '.center(80,'#'))
+
+        def augmentation_fn(x):
+            x = tf.pad(tensor=x, paddings=[[0, 0], [2, 2], [2, 2], [0, 0]], mode='SYMMETRIC')
+            x = tf.image.random_crop(value=x, size=[tf.shape(x)[0], 32, 32, 3])
+            x = tf.image.random_flip_left_right(image=x)
+            return x
+        ds = dataloader(
+            dataset='cifar10',
+            augmentation_fn=augmentation_fn,
+            rescale='standardization',
+            batch_size_train=BATCH_SIZE_TEACHER,
+            batch_size_test=1024
+        )
+
+        # Teacher (ResNet-34)
+        teacher = ResNet_DAFL(ver=34, input_dim=IMAGE_DIM, num_classes=NUM_CLASSES)
+        teacher.compile(
+            metrics=['accuracy'], 
+            optimizer=OPTIMIZER_TEACHER,
+            loss=keras.losses.SparseCategoricalCrossentropy())
+        teacher.build()
+
+        if pretrained_teacher is True:
+            teacher.load_weights('')
+        elif pretrained_teacher is False:
+            def schedule(epoch, learning_rate):
+                if epoch < 80:
+                    return 0.1
+                elif epoch < 120:
+                    return 0.01
+                else:
+                    return 0.001
+            lr_scheduler = keras.callbacks.LearningRateScheduler(schedule)
+            best_callback = keras.callbacks.ModelCheckpoint(
+                filepath=f'./logs/{teacher.name}_best.h5',
+                monitor='val_accuracy',
+                save_best_only=True,
+                save_weights_only=True,
+            )
+            csv_logger = keras.callbacks.CSVLogger(
+                filename=f'./logs/{teacher.name}.csv',
+                append=True
+            )
+            teacher.fit(
+                ds['train'],
+                epochs=NUM_EPOCHS_TEACHER,
+                callbacks=[best_callback, lr_scheduler, csv_logger],
+                validation_data=ds['test']
+            )
+            teacher.load_weights(filepath=f'./logs/{teacher.name}_best.h5')
+        teacher.evaluate(ds['test'])
+        teacher = add_fmap_output(model=teacher, fmap_layer='flatten')
+
+        # Student (ResNet-18)
+        student = ResNet_DAFL(ver=18, input_dim=[32, 32, 3], num_classes=10)
+        student.build()
+        student.compile(metrics='accuracy')
+        student.evaluate(ds['test'])
+
+        generator = DataFreeGenerator(latent_dim=100, image_dim=[32, 32, 1])
+        generator.build()
+
+    run_experiment_cifar10(pretrained_teacher=True)
