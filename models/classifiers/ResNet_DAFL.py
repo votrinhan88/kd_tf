@@ -38,10 +38,10 @@ class ResidualBasicBlock_DAFL(ResidualBasicBlock):
         self.l2_regu = keras.regularizers.L2(l2=5e-4)
 
         self.main_layers = keras.Sequential([
-            keras.layers.Conv2D(filters=self.filters, kernel_size=3, strides=self.strides, padding='same', use_bias=False, kernel_regularizer=self.l2_regu, bias_regularizer=self.l2_regu),
+            keras.layers.Conv2D(filters=self.filters, kernel_size=3, strides=self.strides, padding='same', use_bias=False, kernel_regularizer=self.l2_regu),
             keras.layers.BatchNormalization(momentum=MOMENTUM, epsilon=EPSILON),
             keras.layers.Activation(self.activation),
-            keras.layers.Conv2D(filters=self.filters, kernel_size=3, strides=1, padding='same', use_bias=False,     kernel_regularizer=self.l2_regu, bias_regularizer=self.l2_regu),
+            keras.layers.Conv2D(filters=self.filters, kernel_size=3, strides=1, padding='same', use_bias=False, kernel_regularizer=self.l2_regu),
             keras.layers.BatchNormalization(momentum=MOMENTUM, epsilon=EPSILON)
         ])
 
@@ -49,7 +49,7 @@ class ResidualBasicBlock_DAFL(ResidualBasicBlock):
             self.skip_layers = keras.Sequential([Identity()])
         elif self.strides > 1:
             self.skip_layers = keras.Sequential([
-                keras.layers.Conv2D(filters=self.filters, kernel_size=1, strides=self.strides, padding='same', use_bias=False,     kernel_regularizer=self.l2_regu, bias_regularizer=self.l2_regu),
+                keras.layers.Conv2D(filters=self.filters, kernel_size=1, strides=self.strides, padding='same', use_bias=False, kernel_regularizer=self.l2_regu),
                 keras.layers.BatchNormalization(momentum=MOMENTUM, epsilon=EPSILON)
             ])
 
@@ -70,13 +70,13 @@ class ResidualBottleneck_DAFL(ResidualBottleneck):
         self.l2_regu = keras.regularizers.L2(l2=5e-4)
 
         self.main_layers = keras.Sequential([
-            keras.layers.Conv2D(filters=self.filters, kernel_size=1, strides=1, padding='valid', use_bias=False,     kernel_regularizer=self.l2_regu, bias_regularizer=self.l2_regu),
+            keras.layers.Conv2D(filters=self.filters, kernel_size=1, strides=1, padding='valid', use_bias=False, kernel_regularizer=self.l2_regu),
             keras.layers.BatchNormalization(momentum=MOMENTUM, epsilon=EPSILON),
             keras.layers.Activation(self.activation),
-            keras.layers.Conv2D(filters=self.filters, kernel_size=3, strides=self.strides, padding='same', use_bias=False,     kernel_regularizer=self.l2_regu, bias_regularizer=self.l2_regu),
+            keras.layers.Conv2D(filters=self.filters, kernel_size=3, strides=self.strides, padding='same', use_bias=False, kernel_regularizer=self.l2_regu),
             keras.layers.BatchNormalization(momentum=MOMENTUM, epsilon=EPSILON),
             keras.layers.Activation(self.activation),
-            keras.layers.Conv2D(filters=4*self.filters, kernel_size=1, strides=1, padding='valid', use_bias=False,     kernel_regularizer=self.l2_regu, bias_regularizer=self.l2_regu),
+            keras.layers.Conv2D(filters=4*self.filters, kernel_size=1, strides=1, padding='valid', use_bias=False, kernel_regularizer=self.l2_regu),
             keras.layers.BatchNormalization(momentum=MOMENTUM, epsilon=EPSILON)
         ])
 
@@ -84,7 +84,7 @@ class ResidualBottleneck_DAFL(ResidualBottleneck):
             self.skip_layers = Identity()
         elif (self.strides > 1) | (self.first_block is True):
             self.skip_layers = keras.Sequential([
-                keras.layers.Conv2D(filters=4*self.filters, kernel_size=1, strides=self.strides, padding='valid', use_bias=False,     kernel_regularizer=self.l2_regu, bias_regularizer=self.l2_regu),
+                keras.layers.Conv2D(filters=4*self.filters, kernel_size=1, strides=self.strides, padding='valid', use_bias=False, kernel_regularizer=self.l2_regu),
                 keras.layers.BatchNormalization(momentum=MOMENTUM, epsilon=EPSILON)
             ])
 
@@ -147,7 +147,7 @@ class ResNet_DAFL(ResNet):
 
         self.conv_1 = keras.Sequential(
             layers=[
-                keras.layers.Conv2D(64, kernel_size=3, strides=1, padding="same", use_bias=False, kernel_regularizer=self.l2_regu, bias_regularizer=self.l2_regu),
+                keras.layers.Conv2D(64, kernel_size=3, strides=1, padding="same", use_bias=False, kernel_regularizer=self.l2_regu),
                 keras.layers.BatchNormalization(momentum=MOMENTUM, epsilon=EPSILON),
                 keras.layers.Activation(tf.nn.relu),
             ],
@@ -161,17 +161,17 @@ class ResNet_DAFL(ResNet):
         self.glb_pool = keras.layers.GlobalAvgPool2D(name='glb_pool')
                 
         if self.return_logits is False:
-            self.pred = keras.layers.Dense(units=self.num_classes, name='pred', activation=tf.nn.softmax,     kernel_regularizer=self.l2_regu, bias_regularizer=self.l2_regu)
+            self.pred = keras.layers.Dense(units=self.num_classes, name='pred', activation=tf.nn.softmax, kernel_regularizer=self.l2_regu)
         elif self.return_logits is True:
-            self.logits = keras.layers.Dense(units=self.num_classes, name='logits',     kernel_regularizer=self.l2_regu, bias_regularizer=self.l2_regu)
+            self.logits = keras.layers.Dense(units=self.num_classes, name='logits', kernel_regularizer=self.l2_regu)
 
         if self.return_logits is False:
             if self.num_classes == 1:
-                self.pred = keras.layers.Dense(units=self.num_classes, name='pred', activation=tf.nn.sigmoid, kernel_regularizer=self.l2_regu, bias_regularizer=self.l2_regu)
+                self.pred = keras.layers.Dense(units=self.num_classes, name='pred', activation=tf.nn.sigmoid, kernel_regularizer=self.l2_regu)
             elif self.num_classes > 1:
-                self.pred = keras.layers.Dense(units=self.num_classes, name='pred', activation=tf.nn.softmax, kernel_regularizer=self.l2_regu, bias_regularizer=self.l2_regu)
+                self.pred = keras.layers.Dense(units=self.num_classes, name='pred', activation=tf.nn.softmax, kernel_regularizer=self.l2_regu)
         elif self.return_logits is True:
-            self.pred = keras.layers.Dense(units=self.num_classes, name='pred', kernel_regularizer=self.l2_regu, bias_regularizer=self.l2_regu)
+            self.pred = keras.layers.Dense(units=self.num_classes, name='pred', kernel_regularizer=self.l2_regu)
 
 if __name__ == '__main__':
     net = ResNet_DAFL(ver=34, input_dim=[32, 32, 3], num_classes=10, return_logits=False)
