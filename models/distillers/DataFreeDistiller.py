@@ -9,9 +9,9 @@ if __name__ == '__main__':
     assert os.path.basename(repo_path) == 'kd_tf', "Wrong parent folder. Please change to 'kd_tf'"
     sys.path.append(repo_path)
 
-    from models.distillers.utils import PlaceholderDataGenerator
+    from models.distillers.utils import PlaceholderDataGenerator, LearningRateSchedulerCustom
 else:
-    from .utils import PlaceholderDataGenerator
+    from .utils import PlaceholderDataGenerator, LearningRateSchedulerCustom
 
 class DataFreeGenerator(keras.Model):
     """DCGAN Generator model implemented in Data-Free Learning of Student Networks - 
@@ -974,19 +974,22 @@ if __name__ == '__main__':
         # Teacher (ResNet-34)
         teacher = ResNet_DAFL(ver=34, input_dim=IMAGE_DIM, num_classes=NUM_CLASSES)
         teacher.build()
+        teacher.compile(
+                metrics=['accuracy'], 
+                optimizer=OPTIMIZER_TEACHER,
+                loss=keras.losses.SparseCategoricalCrossentropy())
 
         if pretrained_teacher is True:
             teacher.load_weights(filepath=f'./pretrained/cifar10/mean0_std1/ResNet-DAFL-34_9499.h5')
         elif pretrained_teacher is False:
-            teacher.compile(
-                metrics=['accuracy'], 
-                optimizer=OPTIMIZER_TEACHER,
-                loss=keras.losses.SparseCategoricalCrossentropy())
             def schedule(epoch:int, learing_rate:float):
                 if epoch in [80, 120]:
                     learing_rate = learing_rate*0.1
                 return learing_rate
-            lr_scheduler = keras.callbacks.LearningRateScheduler(schedule)
+            lr_scheduler = LearningRateSchedulerCustom(
+                schedule=schedule,
+                optimizer_name='optimizer',
+                verbose=1)
             best_callback = keras.callbacks.ModelCheckpoint(
                 filepath=f'./logs/{teacher.name}_best.h5',
                 monitor='val_accuracy',
@@ -1039,7 +1042,10 @@ if __name__ == '__main__':
             if epoch in [800, 1600]:
                 learing_rate = learing_rate*0.1
             return learing_rate
-        lr_scheduler = keras.callbacks.LearningRateScheduler(schedule)
+        lr_scheduler = LearningRateSchedulerCustom(
+            schedule=schedule,
+            optimizer_name='optimizer_student',
+            verbose=1)
         csv_logger = CSVLogger_custom(
             filename=f'./logs/{distiller.name}_{student.name}_mnist.csv',
             append=True
@@ -1047,9 +1053,9 @@ if __name__ == '__main__':
         gif_maker = MakeSyntheticGIFCallback(
             filename=f'./logs/{distiller.name}_{student.name}_mnist.gif',
             nrows=5, ncols=5,
-            postprocess_fn=lambda x:x*0.3081 + 0.1307,
+            postprocess_fn=lambda x:x*tf.constant([[[0.2470, 0.2435, 0.2616]]]) + tf.constant([[[0.4914, 0.4822, 0.4465]]]),
             normalize=False,
-            save_freq=NUM_EPOCHS_DISTILL//50
+            # save_freq=NUM_EPOCHS_DISTILL//50
         )
 
         distiller.fit(
