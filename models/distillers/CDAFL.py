@@ -1,5 +1,5 @@
 import warnings
-from typing import List, Union, Tuple
+from typing import List, Union, Literal
 import tensorflow as tf
 keras = tf.keras
 
@@ -10,8 +10,10 @@ if __name__ == '__main__':
     sys.path.append(repo_path)
 
     from models.distillers.DataFreeDistiller import DataFreeDistiller, DataFreeGenerator
+    from models.classifiers.ResNet_DAFL import ResNet_DAFL
 else:
     from .DataFreeDistiller import DataFreeDistiller, DataFreeGenerator
+    from ..classifiers.ResNet_DAFL import ResNet_DAFL
 
 class ConditionalDataFreeGenerator(DataFreeGenerator):
     """Review GAN to CGAN to modify.
@@ -203,7 +205,7 @@ class ConditionalLenet5_ReLU_MaxPool(keras.Model):
         self.C5      = keras.layers.Conv2D(filters=120//divisor, kernel_size=5, strides=1, activation='ReLU', padding='valid', name='C5')
         self.flatten = keras.layers.Flatten(name='flatten')
         self.F6      = keras.layers.Dense(units=84//divisor, activation='ReLU', name='F6')
-        self.pred = keras.layers.Dense(units=1, name='pred', activation=tf.nn.sigmoid)
+        self.pred    = keras.layers.Dense(units=1, name='pred', activation=tf.nn.sigmoid)
 
     def call(self, inputs, training:bool=False):
         images, labels = inputs
@@ -243,6 +245,77 @@ class ConditionalLenet5_ReLU_MaxPool(keras.Model):
             dummy_model.summary(**kwargs)
         else:
             super().summary(**kwargs)
+
+class ConditionalResNet_DAFL(ResNet_DAFL):
+    _name = 'cResNet-DAFL'
+    def __init__(self,
+                 ver:Literal[18, 34, 50, 101, 152]=18,
+                 input_dim:List[int]=[32, 32, 3],
+                 embed_dim:Union[int, None]=None,
+                 num_classes:int=10,
+                 onehot_input:bool=True,
+                 return_logits:bool=False,
+                 **kwargs):
+        super().__init__(
+            ver=ver,
+            input_dim=input_dim,
+            num_classes=1,  # Pass 1 in to receive one output node
+            return_logits=return_logits,
+            **kwargs)
+        self.num_classes = num_classes
+        self.embed_dim = embed_dim
+        self.onehot_input = onehot_input
+
+        if self.onehot_input is False:
+            self.cate_encode = keras.layers.CategoryEncoding(num_tokens=self.num_classes, output_mode='one_hot')
+        if self.embed_dim is None:
+            self.label_branch = keras.Sequential([
+                keras.layers.Dense(units=tf.math.reduce_prod(self.input_dim[0:-1])),
+                keras.layers.Reshape(target_shape=(*self.input_dim[0:-1], 1)),
+                keras.layers.ReLU(),
+            ])
+        elif isinstance(self.embed_dim, int):
+            self.label_branch = keras.Sequential([
+                keras.layers.Dense(units=self.embed_dim),
+                keras.layers.ReLU(),
+                keras.layers.Dense(units=tf.math.reduce_prod(self.input_dim[0:-1])),
+                keras.layers.Reshape(target_shape=(*self.input_dim[0:-1], 1)),
+                keras.layers.ReLU(),
+            ])
+        
+        self.concat = keras.layers.Concatenate()
+
+    def call(self, inputs, training:bool = False):
+        images, labels = inputs
+
+        if self.onehot_input is False:
+            labels = self.cate_encode(labels)
+        label_branch = self.label_branch(labels)
+
+        x = self.concat([images, label_branch])
+        x = super().call(x, training)
+        return x
+
+    def build(self):
+        if self.onehot_input is True:
+            keras.Model.build(self, input_shape=[[None, *self.input_dim], [None, self.num_classes]])
+        elif self.onehot_input is False:
+            keras.Model.build(self, input_shape=[[None, *self.input_dim], [None, 1]])
+
+    def summary(self, with_graph:bool=False, **kwargs):
+        image_inputs = keras.layers.Input(shape=self.input_dim)
+        if self.onehot_input is True:
+            label_inputs = keras.layers.Input(shape=[self.num_classes])
+        elif self.onehot_input is False:
+            label_inputs = keras.layers.Input(shape=[1])
+        inputs = [image_inputs, label_inputs]
+        outputs = self.call(inputs)
+
+        if with_graph is True:
+            dummy_model = keras.Model(inputs=inputs, outputs=outputs, name=self.name)
+            dummy_model.summary(**kwargs)
+        else:
+            keras.Model.summary(self, **kwargs)
 
 class CDAFL(DataFreeDistiller):
     """Actually does not need to write from scratch a new class, only needs to write a
