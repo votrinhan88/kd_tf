@@ -47,6 +47,11 @@ class Distiller(keras.Model):
         elif image_dim is not None:
             self.image_dim = image_dim
 
+    def call(self, inputs, training:bool=False):
+        teacher_logits = self.teacher(inputs, training=training)
+        student_logits = self.student(inputs, training=training)
+        return teacher_logits, student_logits
+
     def compile(self,
                 optimizer:keras.optimizers.Optimizer,
                 distill_loss_fn:keras.losses.Loss=keras.losses.KLDivergence(),
@@ -490,4 +495,5 @@ if __name__ == '__main__':
             validation_freq=100,
             verbose=0,
         )
+    
     run_experiment_mnist_hintonnet()
