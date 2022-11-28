@@ -233,6 +233,72 @@ class ThresholdStopping(keras.callbacks.Callback):
     def _is_complying(self, monitor_value):
         return self.monitor_op(monitor_value, self.threshold)
 
+class CSVLogger_custom(keras.callbacks.CSVLogger):
+    """Re-implementation of keras.callbacks.CSVLogger to use with model.fit() when
+    validation_freq > 1.
+    
+    Args:
+        filename: Filename of the CSV file, e.g. `'run/log.csv'`.
+        separator: String used to separate elements in the CSV file.
+        append: Boolean. True: append if file exists (useful for continuing
+            training). False: overwrite existing file.
+    """
+    def on_epoch_end(self, epoch, logs=None):
+        logs = logs or {}
+
+        def handle_value(k):
+            is_zero_dim_ndarray = isinstance(k, np.ndarray) and k.ndim == 0
+            if isinstance(k, str):
+                return k
+            elif (
+                isinstance(k, collections.abc.Iterable)
+                and not is_zero_dim_ndarray
+            ):
+                return '"[%s]"' % (", ".join(map(str, k)))
+            else:
+                return k
+
+        if self.keys is None:
+            self.keys = sorted(logs.keys())
+
+        if self.model.stop_training:
+            # We set NA so that csv parsers do not fail for this last epoch.
+            logs = dict(
+                (k, logs[k]) if k in logs else (k, "NA") for k in self.keys
+            )
+
+        if not self.writer:
+
+            class CustomDialect(csv.excel):
+                delimiter = self.sep
+
+            fieldnames = ["epoch"] + self.keys
+
+            self.writer = csv.DictWriter(
+                self.csv_file, fieldnames=fieldnames, dialect=CustomDialect
+            )
+            if self.append_header:
+                self.writer.writeheader()
+
+        row_dict = collections.OrderedDict({"epoch": epoch})
+        row_dict.update((key, handle_value(logs[key])) if key in logs else (key, "") for key in self.keys)
+        self.writer.writerow(row_dict)
+        self.csv_file.flush()
+
+class ValidationFreqPrinter(keras.callbacks.Callback):
+    """Print validation results only on epoch with validation step. Typically used
+    when calling `model.fit()` with `validation_freq` > 1.
+    """
+
+    def __init__(self, validation_freq:int=1):
+        super().__init__()
+        self.verbose = 1
+        self.validation_freq = validation_freq
+
+    def on_epoch_end(self, epoch, logs=None):
+        if self.model._should_eval(epoch, self.validation_freq) == True:
+            print(f"Epoch {epoch}: {', '.join(f'{k}: {v:.4f}' for k, v in logs.items())}")
+
 class LearningRateSchedulerCustom(keras.callbacks.Callback):
     def __init__(self,
                  schedule:Callable[[int, float], float],
@@ -257,7 +323,7 @@ class LearningRateSchedulerCustom(keras.callbacks.Callback):
                 f'Learning rate of `{self.optimizer_name}` has been changed to '
                 f'{new_lr}.'
             )
-        return super().on_epoch_begin(epoch, logs)        
+        return super().on_epoch_begin(epoch, logs)
 
 
 if __name__ == '__main__':
