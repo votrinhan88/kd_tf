@@ -188,7 +188,7 @@ if __name__ == '__main__':
 
         def augmentation_fn(x):
             x = tf.pad(tensor=x, paddings=[[0, 0], [2, 2], [2, 2], [0, 0]], mode='SYMMETRIC')
-            x = tf.image.random_crop(value=x, size=[tf.shape(x)[0], 32, 32, 3])
+            x = tf.image.random_crop(value=x, size=[tf.shape(x)[0], *IMAGE_DIM])
             x = tf.image.random_flip_left_right(image=x)
             return x
         ds = dataloader(
