@@ -336,7 +336,6 @@ if __name__ == '__main__':
             monitor='val_accuracy',
             save_best_only=True,
             save_weights_only=True,
-            save_freq=100
         )
         scheduler = MomentumLearningRateSchedulerCustom(
             schedule=MomentumLearningRateSchedule(
@@ -390,7 +389,6 @@ if __name__ == '__main__':
             monitor='val_accuracy',
             save_best_only=True,
             save_weights_only=True,
-            save_freq=100
         )
         scheduler = MomentumLearningRateSchedulerCustom(
             schedule=MomentumLearningRateSchedule(
