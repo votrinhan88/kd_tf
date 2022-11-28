@@ -136,7 +136,7 @@ class ConditionalDataFreeGenerator(DataFreeGenerator):
             dummy_model = keras.Model(inputs=inputs, outputs=outputs, name=self.name)
             dummy_model.summary(**kwargs)
         else:
-            super().summary(**kwargs)
+            keras.Model.summary(self, **kwargs)
 
     def get_config(self):
         config = super().get_config()
@@ -270,7 +270,7 @@ class CDAFL(DataFreeDistiller):
         # Distillation is still the same
         loss_distill = self.distill_loss_fn(teacher_prob, student_prob)
     """
-    _name = 'ConditionalDataFreeDistiller'
+    _name = 'CDAFL'
     def __init__(self,
                  teacher:keras.Model,
                  student:keras.Model,
