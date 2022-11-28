@@ -665,65 +665,74 @@ if __name__ == '__main__':
     from models.GANs.utils import MakeConditionalSyntheticGIFCallback, MakeInterpolateSyntheticGIFCallback
     from dataloader import dataloader
 
-    ds, info = dataloader(
-        dataset='mnist',
-        rescale=[-1, 1],
-        batch_size_train=64,
-        batch_size_test=1000,
-        drop_remainder=True,
-        onehot_label=True,
-        with_info=True)
-    class_names = info.features['label'].names
+    def experiment_mnist_CGAN():
+        LATENT_DIM = 100
+        IMAGE_DIM = [28, 28, 1]
+        BASE_DIM = [7, 7, 256]
+        NUM_CLASSES = 10
+        BATCH_SIZE = 256
 
-    cgen = ConditionalGeneratorEmbed(
-        latent_dim=100,
-        image_dim=[28, 28, 1],
-        base_dim=[7, 7, 256],
-        # embed_dim=50,
-        num_classes=10,
-        onehot_input=True
-    )
-    cgen.build()
+        OPTIMIZER_GEN = keras.optimizers.Adam(learning_rate=1e-4, beta_1=0.5)
+        OPTIMIZER_DISC = keras.optimizers.Adam(learning_rate=1e-4, beta_1=0.5)
 
-    cdisc = ConditionalDiscriminatorEmbed(
-        image_dim=[28, 28, 1],
-        base_dim=[7, 7, 256],
-        # embed_dim=50,
-        num_classes=10,
-        onehot_input=True
-    )
-    cdisc.build()
-    
-    cgan = CGAN(
-        generator=cgen, discriminator=cdisc
-    )
-    cgan.build()
-    cgan.summary(with_graph=True, line_length=120, expand_nested=True)
-    cgan.compile()
+        ds, ds_info = dataloader(
+            dataset='mnist',
+            rescale=[-1, 1],
+            batch_size_train=BATCH_SIZE,
+            batch_size_test=1000,
+            drop_remainder=True,
+            onehot_label=True,
+            with_info=True
+        )
+        class_names = ds_info.features['label'].names
 
-    csv_logger = keras.callbacks.CSVLogger(
-        f'./logs/{cgan.name}_{cgan.generator.name}_{cgan.discriminator.name}.csv',
-        append=True)
-    
-    gif_maker = MakeConditionalSyntheticGIFCallback(
-        filename=f'./logs/{cgan.name}_{cgan.generator.name}_{cgan.discriminator.name}.gif', 
-        postprocess_fn=lambda x:(x+1)/2,
-        class_names=class_names
-    )
-    interpolater = MakeInterpolateSyntheticGIFCallback(
-        filename=f'./logs/{cgan.name}_{cgan.generator.name}_{cgan.discriminator.name}_itpl.gif', 
-        postprocess_fn=lambda x:(x+1)/2,
-        class_names=class_names
-    )
-    slerper = MakeInterpolateSyntheticGIFCallback(
-        filename=f'./logs/{cgan.name}_{cgan.generator.name}_{cgan.discriminator.name}_itpl_slerp.gif',
-        itpl_method='slerp',
-        postprocess_fn=lambda x:(x+1)/2,
-        class_names=class_names
-    )
-    cgan.fit(
-        x=ds['train'],
-        epochs=50,
-        callbacks=[csv_logger, gif_maker, interpolater, slerper],
-        validation_data=ds['test'],
-    )
+        gen = ConditionalGeneratorEmbed(
+            latent_dim=LATENT_DIM,
+            image_dim=IMAGE_DIM,
+            base_dim=BASE_DIM,
+            onehot_input=True
+        )
+        gen.build()
+
+        disc = ConditionalDiscriminatorEmbed(
+            image_dim=IMAGE_DIM,
+            base_dim=BASE_DIM,
+            num_classes=NUM_CLASSES,
+            onehot_input=True
+        )
+        disc.build()
+        disc.compile(metrics=['accuracy'])
+
+        gan = CGAN(generator=gen, discriminator=disc)
+        gan.build()
+        gan.summary(with_graph=True, expand_nested=True, line_length=120)
+
+        gan.compile(
+            optimizer_gen=OPTIMIZER_GEN,
+            optimizer_disc=OPTIMIZER_DISC,
+            loss_fn = keras.losses.BinaryCrossentropy()
+        )
+        csv_logger = keras.callbacks.CSVLogger(
+            filename=f'./logs/{gan.name}_{gan.generator.name}_{gan.discriminator.name}.csv',
+            append=True
+        )
+        gif_maker = MakeConditionalSyntheticGIFCallback(
+            filename=f'./logs/{gan.name}_{gan.generator.name}_{gan.discriminator.name}.gif',
+            postprocess_fn=lambda x:x*0.5 + 0.5,
+            normalize=False,
+            class_names=class_names
+        )
+        slerper = MakeInterpolateSyntheticGIFCallback(
+            filename=f'./logs/{gan.name}_{gan.generator.name}_{gan.discriminator.name}_itpl_slerp.gif',
+            itpl_method='slerp',
+            postprocess_fn=lambda x:(x+1)/2,
+            class_names=class_names
+        )
+        gan.fit(
+            x=ds['train'],
+            epochs=50,
+            callbacks=[csv_logger, gif_maker, slerper],
+            validation_data=ds['test']
+        )
+
+    experiment_mnist_CGAN()
