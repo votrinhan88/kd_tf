@@ -228,7 +228,8 @@ if __name__ == '__main__':
     assert os.path.basename(repo_path) == 'kd_tf', "Wrong parent folder. Please change to 'kd_tf'"
     sys.path.append(repo_path)
 
-    from dataloader import dataloader
+    import tensorflow_datasets as tfds
+
     from models.classifiers.LeNet_5 import LeNet_5
     from models.classifiers.HintonNet import HintonNet
     from models.distillers.utils import CSVLogger_custom, ValidationFreqPrinter
@@ -307,12 +308,30 @@ if __name__ == '__main__':
             x = tf.pad(tensor=x, paddings=[[0, 0], [2, 2], [2, 2], [0, 0]], mode='SYMMETRIC')
             x = tf.image.random_crop(value=x, size=[tf.shape(x)[0], *IMAGE_DIM])
             return x
-        ds = dataloader(
-            dataset='mnist',
-            augmentation_fn=augmentation_fn,
-            batch_size_train=BATCH_SIZE,
-            batch_size_test=1024,
-        )
+        
+        ds, info = tfds.load('mnist', as_supervised=True, with_info=True, data_dir='./datasets')
+        num_examples = info.splits['train'].num_examples
+        def train_preprocess(x, y):
+            x = tf.cast(x, tf.float32)/255
+            x = augmentation_fn(x)
+            y = tf.cast(y, tf.int32)
+            return x, y
+        def test_preprocess(x, y):
+            x = tf.cast(x, tf.float32)/255
+            y = tf.cast(y, tf.int32)
+            return x, y
+        ds['train'] = (ds['train']
+            .cache()
+            .repeat()
+            .shuffle(num_examples)
+            .batch(BATCH_SIZE)                     
+            .map(train_preprocess, num_parallel_calls=tf.data.AUTOTUNE)                 
+            .prefetch(tf.data.AUTOTUNE))                                                
+        ds['test'] = (ds['test']
+            .cache()
+            .batch(1000)
+            .map(test_preprocess, num_parallel_calls=tf.data.AUTOTUNE)
+            .prefetch(tf.data.AUTOTUNE))   
 
         # Teacher (LeNet-5)
         teacher = HintonNet(
