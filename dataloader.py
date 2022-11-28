@@ -88,6 +88,7 @@ def dataloader(dataset:str,
         std = 1/(rescale[1] - rescale[0])
     ds, info = tfds.load(dataset, as_supervised=True, with_info=True, data_dir='./datasets')
     num_classes = info.features['label'].num_classes
+    num_examples = info.splits['train'].num_examples
 
     if augmentation_fn is None:
         augmentation_fn = lambda x:x
@@ -116,7 +117,7 @@ def dataloader(dataset:str,
     ds['train'] = (ds['train']
         # .interleave(dataset_generator_func, num_parallel_calls=tf.data.AUTOTUNE)  # Parallelize data reading
         .cache()                                                                    # Cache data
-        .shuffle(50000)
+        .shuffle(num_examples)
         .batch(batch_size_train, drop_remainder=drop_remainder)                     # Vectorize your mapped function
         .map(train_preprocess, num_parallel_calls=tf.data.AUTOTUNE)                 # Reduce memory usage
         # .map(time_consuming_map, num_parallel_calls=tf.data.AUTOTUNE)             # Parallelize map transformation
