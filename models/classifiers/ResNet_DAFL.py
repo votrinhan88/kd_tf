@@ -174,10 +174,61 @@ class ResNet_DAFL(ResNet):
             self.pred = keras.layers.Dense(units=self.num_classes, name='pred', kernel_regularizer=self.l2_regu)
 
 if __name__ == '__main__':
-    net = ResNet_DAFL(ver=34, input_dim=[32, 32, 3], num_classes=10, return_logits=False)
-    net.build()
-    net.summary(as_functional=True, expand_nested=True, line_length=100)
+    from dataloader import dataloader
 
-    net = ResNet_DAFL(ver=50, input_dim=[32, 32, 3], num_classes=10, return_logits=False)
-    net.build()
-    net.summary(as_functional=True, expand_nested=True, line_length=100)
+    def train_ResNetDAFL_cifar10(ver:int=34):
+        IMAGE_DIM = [32, 32, 3]
+        NUM_CLASSES = 10
+        BATCH_SIZE_TEACHER = 128
+        NUM_EPOCHS_TEACHER = 200
+
+        OPTIMIZER_TEACHER = keras.optimizers.SGD(learning_rate=0.1, momentum=0.9) # 1e-1 to 1e-2 to 1e-3
+
+        print(' ResNet_DAFL on CIFAR-10 with DAFL settings '.center(80,'#'))
+
+        def augmentation_fn(x):
+            x = tf.pad(tensor=x, paddings=[[0, 0], [2, 2], [2, 2], [0, 0]], mode='SYMMETRIC')
+            x = tf.image.random_crop(value=x, size=[tf.shape(x)[0], 32, 32, 3])
+            x = tf.image.random_flip_left_right(image=x)
+            return x
+        ds = dataloader(
+            dataset='cifar10',
+            augmentation_fn=augmentation_fn,
+            rescale='standardization',
+            batch_size_train=BATCH_SIZE_TEACHER,
+            batch_size_test=1024
+        )
+        
+        net:keras.Model = ResNet_DAFL(ver=ver, input_dim=IMAGE_DIM, num_classes=NUM_CLASSES)
+        net.build()
+
+        net.compile(
+            metrics=['accuracy'], 
+            optimizer=OPTIMIZER_TEACHER,
+            loss=keras.losses.SparseCategoricalCrossentropy())
+
+        def schedule(epoch:int, learing_rate:float):
+            if epoch in [80, 120]:
+                learing_rate = learing_rate*0.1
+            return learing_rate
+        lr_scheduler = keras.callbacks.LearningRateScheduler(schedule)
+        best_callback = keras.callbacks.ModelCheckpoint(
+            filepath=f'./logs/{net.name}_best.h5',
+            monitor='val_accuracy',
+            save_best_only=True,
+            save_weights_only=True,
+        )
+        csv_logger = keras.callbacks.CSVLogger(
+            filename=f'./logs/{net.name}.csv',
+            append=True
+        )
+        net.fit(
+            ds['train'],
+            epochs=NUM_EPOCHS_TEACHER,
+            callbacks=[best_callback, lr_scheduler, csv_logger],
+            validation_data=ds['test']
+        )
+        net.load_weights(filepath=f'./logs/{net.name}_best.h5')
+        net.evaluate(ds['test'])
+
+    train_ResNetDAFL_cifar10()
