@@ -43,9 +43,9 @@ class Distiller(keras.Model):
         self.image_dim = image_dim
         
         if image_dim is None:
-            self.latent_dim:int = self.student.input_dim
+            self.image_dim:int = self.student.input_dim
         elif image_dim is not None:
-            self.latent_dim = image_dim
+            self.image_dim = image_dim
 
     def compile(self,
                 optimizer:keras.optimizers.Optimizer,
