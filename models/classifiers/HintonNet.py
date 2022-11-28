@@ -47,7 +47,7 @@ class HintonNet(keras.Model):
         """
         assert isinstance(return_logits, bool), '`return_logits` must be of type bool.'
 
-        super().__init__(self, name=self._name + str(hidden_layers), **kwargs)
+        super().__init__(self, name='_'.join(str(layer) for layer in [self.name, *hidden_layers]), **kwargs)
         self.input_dim = input_dim
         self.hidden_layers = hidden_layers
         self.num_classes = num_classes
