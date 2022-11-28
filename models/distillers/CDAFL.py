@@ -97,7 +97,8 @@ class ConditionalDataFreeGenerator(DataFreeGenerator):
                 keras.layers.LeakyReLU(alpha=0.2),
                 keras.layers.Conv2D(filters=self.image_dim[2], kernel_size=3, strides=1, padding='same'),
                 keras.layers.Activation(tf.nn.tanh),
-                keras.layers.BatchNormalization(momentum=self._MOMENTUM, epsilon=self._EPSILONS[3], center=False, scale=False)],
+                keras.layers.BatchNormalization(momentum=self._MOMENTUM, epsilon=self._EPSILONS[3], center=False, scale=False)
+            ],
             name='conv_block_2'
         )
 
@@ -203,7 +204,6 @@ class ConditionalLenet5_ReLU_MaxPool(keras.Model):
         self.flatten = keras.layers.Flatten(name='flatten')
         self.F6      = keras.layers.Dense(units=84//divisor, activation='ReLU', name='F6')
         self.pred = keras.layers.Dense(units=1, name='pred', activation=tf.nn.sigmoid)
-
 
     def call(self, inputs, training:bool=False):
         images, labels = inputs
