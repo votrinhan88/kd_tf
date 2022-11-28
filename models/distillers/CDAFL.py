@@ -422,8 +422,10 @@ if __name__ == '__main__':
         BATCH_SIZE_TEACHER, BATCH_SIZE_DISTILL = 256, 500 # Change 512 to 500 for evenly distributed classes
         NUM_EPOCHS_TEACHER, NUM_EPOCHS_DISTILL = 10, 200
         OPTIMIZER_TEACHER = keras.optimizers.Adam(learning_rate=1e-3, epsilon=1e-8)
-        OPTIMIZER_GENERATOR = keras.optimizers.Adam(learning_rate=2e-1, epsilon=1e-8)
-        OPTIMIZER_STUDENT = keras.optimizers.Adam(learning_rate=2e-3, epsilon=1e-8)
+        OPTIMIZER_GENERATOR = keras.optimizers.Adam(learning_rate=2e-2, epsilon=1e-8)
+        OPTIMIZER_STUDENT = keras.optimizers.Adam(learning_rate=2e-4, epsilon=1e-8)
+        # OPTIMIZER_GENERATOR = keras.optimizers.SGD(learning_rate=2e-2)
+        # OPTIMIZER_STUDENT = keras.optimizers.SGD(learning_rate=2e-4)
         COEFF_OH, COEFF_AC, COEFF_IE = 1, 0.1, 5
 
         print(' Experiment 1: CDAFL on MNIST. Teacher: LeNet-5, student: LeNet-5-HALF '.center(80,'#'))
@@ -494,7 +496,7 @@ if __name__ == '__main__':
             optimizer_student=OPTIMIZER_STUDENT,
             optimizer_generator=OPTIMIZER_GENERATOR,
             onehot_loss_fn=True,
-            activation_loss_fn=False,
+            activation_loss_fn=True,
             info_entropy_loss_fn=False,
             distill_loss_fn=keras.losses.KLDivergence(),
             student_loss_fn=keras.losses.SparseCategoricalCrossentropy(),
@@ -512,9 +514,11 @@ if __name__ == '__main__':
         )
         gif_maker = MakeConditionalSyntheticGIFCallback(
             filename=f'./logs/{distiller.name}_{student.name}_mnist.gif',
-            postprocess_fn=lambda x:x*0.5 + 0.5, 
+            postprocess_fn=lambda x:x*0.3081 + 0.1307,
+            normalize=False,
             class_names=class_names,
-            delete_png=True
+            delete_png=False,
+            save_freq=NUM_EPOCHS_DISTILL//50
         )
         distiller.fit(
             epochs=NUM_EPOCHS_DISTILL,
@@ -522,4 +526,4 @@ if __name__ == '__main__':
             validation_data=ds['test']
         )
 
-    run_experiment_mnist()
+    run_experiment_mnist(pretrained_teacher=True)
