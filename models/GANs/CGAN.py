@@ -1,6 +1,7 @@
-# https://machinelearningmastery.com/how-to-develop-a-conditional-generative-adversarial-network-from-scratch/
-# https://phamdinhkhanh.github.io/2020/08/09/ConditionalGAN.html
-# https://www.youtube.com/watch?v=MAMSh5kVoec
+from typing import List, Union
+
+import tensorflow as tf
+keras = tf.keras
 
 if __name__ == '__main__':
     import os, sys
@@ -13,10 +14,6 @@ if __name__ == '__main__':
 else:
     from .GAN import GAN
     from .utils import RepeatTensor
-
-from typing import List, Union
-import tensorflow as tf
-keras = tf.keras
 
 # TODO:
 #   - Build ConditionalGeneratorEmbed as base class, inherit to Stack version
@@ -662,8 +659,9 @@ class CGAN(GAN):
             keras.Model.summary(self, **kwargs)
 
 if __name__ == '__main__':
-    from models.GANs.utils import MakeConditionalSyntheticGIFCallback, MakeInterpolateSyntheticGIFCallback
     from dataloader import dataloader
+    from models.GANs.utils import MakeConditionalSyntheticGIFCallback, MakeInterpolateSyntheticGIFCallback
+    from models.distillers.CDAFL import ConditionalDataFreeGenerator, ConditionalLenet5_ReLU_MaxPool
 
     def experiment_mnist_CGAN():
         LATENT_DIM = 100
@@ -733,6 +731,74 @@ if __name__ == '__main__':
             epochs=50,
             callbacks=[csv_logger, gif_maker, slerper],
             validation_data=ds['test']
+        )
+
+    def experiment_mnist_CGAN_with_DAFL_models(latent_dim:int=100,
+                                         embed_dim:int=50):
+        LATENT_DIM = latent_dim
+        IMAGE_DIM = [32, 32, 1]
+        EMBED_DIM = embed_dim
+        NUM_CLASSES = 10
+        BATCH_SIZE = 256
+        NUM_EPOCHS = 50
+
+        OPTIMIZER_GEN = keras.optimizers.Adam(2e-4, 0.5),
+        OPTIMIZER_DISC = keras.optimizers.Adam(2e-4, 0.5),
+        
+        ds, info = dataloader(
+            dataset='mnist',
+            resize=IMAGE_DIM[0:-1],
+            rescale='standardization',
+            batch_size_train=BATCH_SIZE,
+            batch_size_test=1000,
+            drop_remainder=False,
+            onehot_label=True,
+            with_info=True)
+        class_names = info.features['label'].names
+
+        gen = ConditionalDataFreeGenerator(
+            latent_dim=LATENT_DIM,
+            image_dim=IMAGE_DIM,
+            embed_dim=EMBED_DIM,
+            num_classes=NUM_CLASSES,
+            onehot_input=True,
+            dafl_batchnorm=True
+        )
+        gen.build()
+
+        disc = ConditionalLenet5_ReLU_MaxPool(
+            input_dim=IMAGE_DIM,
+            embed_dim=EMBED_DIM,
+            num_classes=NUM_CLASSES,
+            onehot_input=True
+        )
+        disc.build()
+
+        gan = CGAN(generator=gen, discriminator=disc)
+        gan.build()
+        gan.summary(with_graph=True, expand_nested=True, line_length=120)
+        gan.compile(
+            optimizer_gen=OPTIMIZER_GEN,
+            optimizer_disc=OPTIMIZER_DISC,
+            loss_fn=keras.losses.BinaryCrossentropy(),
+        )
+
+        csv_logger = keras.callbacks.CSVLogger(
+            f'./logs/{gan.name}_{gan.generator.name}_{gan.discriminator.name}.csv',
+            append=True)
+        
+        gif_maker = MakeConditionalSyntheticGIFCallback(
+            filename=f'./logs/{gan.name}_{gan.generator.name}_{gan.discriminator.name}.gif', 
+            postprocess_fn=lambda x:x*0.3081 + 0.1307,
+            normalize=False,
+            class_names=class_names,
+            delete_png=False
+        )
+        gan.fit(
+            x=ds['train'],
+            epochs=NUM_EPOCHS,
+            callbacks=[csv_logger, gif_maker],
+            validation_data=ds['test'],
         )
 
     experiment_mnist_CGAN()
