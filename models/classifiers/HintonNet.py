@@ -5,12 +5,14 @@ keras = tf.keras
 
 class HintonNet(keras.Model):
     """Baseline model in implemented in paper 'Distilling the Knowledge in a Neural
-    Network' - Hinton et al. (2015)
-    DOI: 10.48550/arXiv.1503.02531
+    Network' - Hinton et al. (2015), DOI: 10.48550/arXiv.1503.02531. Originally
+    described in Improving neural networks by preventing co-adaptation of
+    feature detectors - Hinton et al (2012), DOI: 10.48550/arXiv.1207.0580
 
     Args:
         `input_dim`: Dimension of input images. Defaults to `[28, 28, 1]`.
-        `num_hiddens`: Number of nodes in each hidden layer. Defaults to `1200`.
+        `hidden_layers`: Number of nodes in each hidden layer.
+            Defaults to `[1200, 1200]`.
         `num_classes`: Number of output nodes. Defaults to `10`.
         `return_logits`: Flag to choose between return logits or probability.
             Defaults to `False`.
@@ -19,14 +21,14 @@ class HintonNet(keras.Model):
         Additional keyword arguments passed to `keras.Model.__init__`.
 
     Two versions:
-    - Teacher: 1200 nodes in each of two hidden layers
-    - Student: 800 nodes in each of two hidden layers
+    - Teacher: `hidden_layers` = [1200, 1200]
+    - Student: `hidden_layers` = [800, 800]
     """    
     _name = 'HintonNet'
 
     def __init__(self,
                  input_dim:List[int]=[28, 28, 1],
-                 num_hiddens:int=1200,
+                 hidden_layers:List[int]=[1200, 1200],
                  num_classes:int=10,
                  return_logits:bool=False,
                  **kwargs):
@@ -34,7 +36,8 @@ class HintonNet(keras.Model):
         
         Args:
             `input_dim`: Dimension of input images. Defaults to `[28, 28, 1]`.
-            `num_hiddens`: Number of nodes in each hidden layer. Defaults to `1200`.
+            `hidden_layers`: Number of nodes in each hidden layer.
+                Defaults to `[1200, 1200]`.
             `num_classes`: Number of output nodes. Defaults to `10`.
             `return_logits`: Flag to choose between return logits or probability.
                 Defaults to `False`.
@@ -46,30 +49,35 @@ class HintonNet(keras.Model):
 
         super().__init__(self, name=self._name, **kwargs)
         self.input_dim = input_dim
-        self.num_hiddens = num_hiddens
+        self.hidden_layers = hidden_layers
         self.num_classes = num_classes
         self.return_logits = return_logits
 
-        self.flatten      = keras.layers.Flatten()
-        self.dense_1      = keras.layers.Dense(units=self.num_hiddens)
-        self.leaky_relu_1 = keras.layers.LeakyReLU(alpha=0.3)
-        self.dense_2      = keras.layers.Dense(units=self.num_hiddens)
-        self.leaky_relu_2 = keras.layers.LeakyReLU(alpha=0.3)
+        self.weight_constraint = keras.constraints.MaxNorm(max_value=15)
+
+        self.flatten    = keras.layers.Flatten()
+        self.dropout_in = keras.layers.Dropout(rate=0.2)
+        self._hidden_layers = []
+        for num_nodes in self.hidden_layers:
+            self._hidden_layers.extend([
+                keras.layers.Dense(units=num_nodes, kernel_initializer=keras.initializers.RandomNormal(mean=0, stddev=0.01), kernel_constraint=self.weight_constraint),
+                keras.layers.Activation(tf.nn.relu),
+                keras.layers.Dropout(rate=0.5),
+            ])
 
         if self.return_logits is False:
             if self.num_classes == 1:
-                self.pred = keras.layers.Dense(units=self.num_classes, name='pred', activation=tf.nn.sigmoid)
+                self.pred = keras.layers.Dense(units=self.num_classes, name='pred', activation=tf.nn.sigmoid, kernel_initializer=keras.initializers.RandomNormal(mean=0, stddev=0.01), kernel_constraint=self.weight_constraint)
             elif self.num_classes > 1:
-                self.pred = keras.layers.Dense(units=self.num_classes, name='pred', activation=tf.nn.softmax)
+                self.pred = keras.layers.Dense(units=self.num_classes, name='pred', activation=tf.nn.softmax, kernel_initializer=keras.initializers.RandomNormal(mean=0, stddev=0.01), kernel_constraint=self.weight_constraint)
         elif self.return_logits is True:
-            self.logits = keras.layers.Dense(units=self.num_classes, name='logits')
+            self.logits = keras.layers.Dense(units=self.num_classes, name='logits', kernel_initializer=keras.initializers.RandomNormal(mean=0, stddev=0.01), kernel_constraint=self.weight_constraint)
 
     def call(self, inputs, training:bool=False):
         x = self.flatten(inputs)
-        x = self.dense_1(x)
-        x = self.leaky_relu_1(x)
-        x = self.dense_2(x)
-        x = self.leaky_relu_2(x)
+        x = self.dropout_in(x)
+        for layer in self._hidden_layers:
+            x = layer(x)
         if self.return_logits is False:
             x = self.pred(x)
         elif self.return_logits is True:
@@ -126,6 +134,7 @@ if __name__ == '__main__':
 
     net = HintonNet(
         input_dim=[28, 28, 1],
+        hidden_layers=[1200, 1200],
         num_classes=10
     )
     net.build()
