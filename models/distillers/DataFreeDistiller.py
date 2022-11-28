@@ -844,10 +844,11 @@ if __name__ == '__main__':
         NUM_CLASSES = 10
         BATCH_SIZE_TEACHER, BATCH_SIZE_DISTILL = 256, 512
         NUM_EPOCHS_TEACHER, NUM_EPOCHS_DISTILL = 10, 200
+        COEFF_OH, COEFF_AC, COEFF_IE = 1, 0.1, 5
+
         OPTIMIZER_TEACHER = keras.optimizers.Adam(learning_rate=1e-3, epsilon=1e-8)
         OPTIMIZER_GENERATOR = keras.optimizers.Adam(learning_rate=2e-1, epsilon=1e-8)
         OPTIMIZER_STUDENT = keras.optimizers.Adam(learning_rate=2e-3, epsilon=1e-8)
-        COEFF_OH, COEFF_AC, COEFF_IE = 1, 0.1, 5
         
         print(' Experiment 4.1: DAFL on MNIST. Teacher: LeNet-5, student: LeNet-5-HALF '.center(80,'#'))
         
@@ -884,7 +885,6 @@ if __name__ == '__main__':
                 ds['train'],
                 epochs=NUM_EPOCHS_TEACHER,
                 callbacks=[best_callback, csv_logger],
-                shuffle=True,
                 validation_data=ds['test']
             )
             teacher.load_weights(filepath=f'./logs/{teacher.name}_best.h5')
@@ -961,7 +961,7 @@ if __name__ == '__main__':
 
         def augmentation_fn(x):
             x = tf.pad(tensor=x, paddings=[[0, 0], [2, 2], [2, 2], [0, 0]], mode='SYMMETRIC')
-            x = tf.image.random_crop(value=x, size=[tf.shape(x)[0], 32, 32, 3])
+            x = tf.image.random_crop(value=x, size=[tf.shape(x)[0], *IMAGE_DIM])
             x = tf.image.random_flip_left_right(image=x)
             return x
         ds = dataloader(
@@ -1066,4 +1066,4 @@ if __name__ == '__main__':
             validation_data=ds['test']
         )
 
-    run_experiment_cifar10(pretrained_teacher=True)
+    run_experiment_mnist(pretrained_teacher=True)
