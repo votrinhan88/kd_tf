@@ -81,7 +81,7 @@ class Distiller(keras.Model):
         self.loss_student_metric = keras.metrics.Mean(name='loss_st')
         self.loss_distill_metric = keras.metrics.Mean(name='loss_dt')
         self.loss_total_metric = keras.metrics.Mean(name='loss')
-        self.accuracy_metric = keras.metrics.Accuracy(name='accuracy')
+        self.accuracy_metric = keras.metrics.SparseCategoricalAccuracy(name='accuracy')
     
     @property
     def train_metrics(self) -> List[keras.metrics.Metric]:
@@ -125,10 +125,9 @@ class Distiller(keras.Model):
 
             # Forward pass of student
             student_logits = self.student(x, training=True)
-            student_prob = tf.nn.softmax(student_logits, axis=1)
 
             # Compute losses
-            loss_student = self.student_loss_fn(y, student_prob)
+            loss_student = self.student_loss_fn(y, student_logits)
 
             # Compute scaled distillation loss from https://arxiv.org/abs/1503.02531
             # The magnitudes of the gradients produced by the soft targets scale
@@ -149,7 +148,7 @@ class Distiller(keras.Model):
         self.loss_student_metric.update_state(loss_student)
         self.loss_distill_metric.update_state(loss_distill)
         self.loss_total_metric.update_state(loss_total)
-        self.accuracy_metric.update_state(y_true=y, y_pred=student_prob)
+        self.accuracy_metric.update_state(y_true=y, y_pred=student_logits)
 
         results = {m.name: m.result() for m in self.train_metrics}
         return results
@@ -442,6 +441,13 @@ if __name__ == '__main__':
         student.evaluate(ds['test'])
 
         # Standard knowledge distillation
+        student = HintonNet(
+            input_dim=IMAGE_DIM,
+            hidden_layers=HIDDEN_LAYERS_STUDENT,
+            num_classes=NUM_CLASSES,
+            return_logits=True,
+        )
+        student.build()
         distiller = Distiller(teacher=teacher, student=student)
         distiller.build()
         distiller.summary(as_functional=True, expand_nested=True, line_length=120)
