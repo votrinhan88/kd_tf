@@ -389,7 +389,6 @@ if __name__ == '__main__':
             verbose=0,
         )
         teacher.load_weights(filepath=f'./logs/{teacher.name}_teacher_best.h5')
-        teacher.evaluate(ds['test'])
 
         # Student (LeNet-5-HALF)
         student = HintonNet(
@@ -443,6 +442,8 @@ if __name__ == '__main__':
             verbose=0,
         )
         student.load_weights(filepath=f'./logs/{student.name}_student_best.h5')
+        
+        teacher.evaluate(ds['test'])
         student.evaluate(ds['test'])
 
         # Standard knowledge distillation
