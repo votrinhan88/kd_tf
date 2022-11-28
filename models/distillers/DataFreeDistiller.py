@@ -840,7 +840,7 @@ if __name__ == '__main__':
         # KD with alternative dataset USPS:     94.56%         93.99%
         # Data-free KD:                         98.20%         97.91%    
         LATENT_DIM = 100
-        IMAGE_DIM = [32, 32, 1]
+        IMAGE_DIM = [32, 32, 1] # LeNet-5 accepts [32, 32] images
         NUM_CLASSES = 10
         BATCH_SIZE_TEACHER, BATCH_SIZE_DISTILL = 256, 512
         NUM_EPOCHS_TEACHER, NUM_EPOCHS_DISTILL = 10, 200
@@ -850,6 +850,7 @@ if __name__ == '__main__':
         COEFF_OH, COEFF_AC, COEFF_IE = 1, 0.1, 5
         
         print(' Experiment 4.1: DAFL on MNIST. Teacher: LeNet-5, student: LeNet-5-HALF '.center(80,'#'))
+        
         ds = dataloader(
             dataset='mnist',
             resize=IMAGE_DIM[0:-1],
