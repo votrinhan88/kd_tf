@@ -661,7 +661,7 @@ class CGAN(GAN):
 if __name__ == '__main__':
     from dataloader import dataloader
     from models.GANs.utils import MakeConditionalSyntheticGIFCallback, MakeInterpolateSyntheticGIFCallback
-    from models.distillers.CDAFL import ConditionalDataFreeGenerator, ConditionalLenet5_ReLU_MaxPool
+    from models.distillers.CDAFL import ConditionalDataFreeGenerator, ConditionalLenet5_ReLU_MaxPool, ConditionalResNet_DAFL
 
     def experiment_mnist_CGAN():
         LATENT_DIM = 100
@@ -733,17 +733,16 @@ if __name__ == '__main__':
             validation_data=ds['test']
         )
 
-    def experiment_mnist_CGAN_with_DAFL_models(latent_dim:int=100,
-                                         embed_dim:int=50):
-        LATENT_DIM = latent_dim
+    def experiment_mnist_CGAN_with_DAFL_models(embed_dim:Union[int, None]=None):
+        LATENT_DIM = 100
         IMAGE_DIM = [32, 32, 1]
         EMBED_DIM = embed_dim
         NUM_CLASSES = 10
         BATCH_SIZE = 256
         NUM_EPOCHS = 50
 
-        OPTIMIZER_GEN = keras.optimizers.Adam(2e-4, 0.5),
-        OPTIMIZER_DISC = keras.optimizers.Adam(2e-4, 0.5),
+        OPTIMIZER_GEN = keras.optimizers.Adam(learning_rate=2e-4, beta_1=0.5)
+        OPTIMIZER_DISC = keras.optimizers.Adam(learning_rate=2e-4, beta_1=0.5)
         
         ds, info = dataloader(
             dataset='mnist',
@@ -770,7 +769,7 @@ if __name__ == '__main__':
             input_dim=IMAGE_DIM,
             embed_dim=EMBED_DIM,
             num_classes=NUM_CLASSES,
-            onehot_input=True
+            onehot_input=True,
         )
         disc.build()
 
@@ -801,4 +800,79 @@ if __name__ == '__main__':
             validation_data=ds['test'],
         )
 
-    experiment_mnist_CGAN()
+    def experiment_cifar10_CGAN_with_DAFL_models(ver:int=34, embed_dim:Union[int, None]=None):
+        VER = ver
+        LATENT_DIM = 1000
+        IMAGE_DIM = [32, 32, 3]
+        EMBED_DIM = embed_dim
+        NUM_CLASSES = 10
+        BATCH_SIZE = 128
+        NUM_EPOCHS = 200
+
+        OPTIMIZER_GEN = keras.optimizers.Adam(learning_rate=2e-4, beta_1=0.5)
+        OPTIMIZER_DISC = keras.optimizers.Adam(learning_rate=2e-4, beta_1=0.5)
+        
+        def augmentation_fn(x):
+            x = tf.pad(tensor=x, paddings=[[0, 0], [2, 2], [2, 2], [0, 0]], mode='SYMMETRIC')
+            x = tf.image.random_crop(value=x, size=[tf.shape(x)[0], *IMAGE_DIM])
+            x = tf.image.random_flip_left_right(image=x)
+            return x
+        ds, info = dataloader(
+            dataset='cifar10',
+            augmentation_fn=augmentation_fn,
+            rescale='standardization',
+            batch_size_train=BATCH_SIZE,
+            batch_size_test=1000,
+            drop_remainder=True,
+            onehot_label=True,
+            with_info=True,
+        )
+        class_names = info.features['label'].names
+
+        gen = ConditionalDataFreeGenerator(
+            latent_dim=LATENT_DIM,
+            image_dim=IMAGE_DIM,
+            embed_dim=EMBED_DIM,
+            num_classes=NUM_CLASSES,
+            onehot_input=True,
+            dafl_batchnorm=True
+        )
+        gen.build()
+
+        disc = ConditionalResNet_DAFL(
+            ver=VER,
+            input_dim=IMAGE_DIM,
+            embed_dim=EMBED_DIM,
+            num_classes=NUM_CLASSES,
+            onehot_input=True,
+        )
+        disc.build()
+
+        gan = CGAN(generator=gen, discriminator=disc)
+        gan.build()
+        gan.summary(with_graph=True, expand_nested=True, line_length=120)
+        gan.compile(
+            optimizer_gen=OPTIMIZER_GEN,
+            optimizer_disc=OPTIMIZER_DISC,
+            loss_fn=keras.losses.BinaryCrossentropy(),
+        )
+
+        csv_logger = keras.callbacks.CSVLogger(
+            f'./logs/{gan.name}_{gan.generator.name}_{gan.discriminator.name}.csv',
+            append=True)
+        
+        gif_maker = MakeConditionalSyntheticGIFCallback(
+            filename=f'./logs/{gan.name}_{gan.generator.name}_{gan.discriminator.name}.gif', 
+            postprocess_fn=lambda x:x*tf.constant([[[0.2470, 0.2435, 0.2616]]]) + tf.constant([[[0.4914, 0.4822, 0.4465]]]),
+            normalize=False,
+            class_names=class_names,
+            delete_png=False
+        )
+        gan.fit(
+            x=ds['train'],
+            epochs=NUM_EPOCHS,
+            callbacks=[csv_logger, gif_maker],
+            validation_data=ds['test'],
+        )
+
+    experiment_cifar10_CGAN_with_DAFL_models()
