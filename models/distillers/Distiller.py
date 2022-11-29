@@ -3,15 +3,14 @@ import tensorflow as tf
 keras = tf.keras
 from keras.utils import io_utils
 
-
 class Distiller(keras.Model):
     '''Traditional knowledge distillation scheme, training the student on both the
     transfer set and the soft targets produced by a pre-trained teacher.
 
     Args:
-        `teacher`: To-be-trained student model. Should return logits.
-        `student`: Pre-trained teacher model. Should return logits.
-        `input_dim`: Dimension of input images, leave as `None` to be parsed from
+        `teacher`: Pre-trained teacher model. Must return logits.
+        `student`: To-be-trained student model. Must return logits.
+        `image_dim`: Dimension of input images, leave as `None` to be parsed from
             student. Defaults to `None`.
 
     Kwargs:
@@ -29,8 +28,8 @@ class Distiller(keras.Model):
         """Initialize distiller.
         
         Args:
-            `teacher`: To-be-trained student model. Should return logits.
-            `student`: Pre-trained teacher model. Should return logits.
+            `teacher`: Pre-trained teacher model. Must return logits.
+            `student`: To-be-trained student model. Must return logits.
             `image_dim`: Dimension of input images, leave as `None` to be parsed from
                 student. Defaults to `None`.
 
@@ -48,16 +47,16 @@ class Distiller(keras.Model):
             self.image_dim = image_dim
 
     def call(self, inputs, training:bool=False):
-        teacher_logits = self.teacher(inputs, training=training)
+        teacher_logits = self.teacher(inputs, training=False)
         student_logits = self.student(inputs, training=training)
         return teacher_logits, student_logits
 
     def compile(self,
-                optimizer:keras.optimizers.Optimizer,
+                optimizer:keras.optimizers.Optimizer=keras.optimizers.SGD(1e-3),
                 distill_loss_fn:keras.losses.Loss=keras.losses.KLDivergence(),
                 student_loss_fn:keras.losses.Loss=keras.losses.SparseCategoricalCrossentropy(from_logits=True),
                 alpha:float=0.1,
-                temperature:float=4.0,
+                temperature:float=10,
                 **kwargs):
         """Compile distiller.
         
@@ -70,7 +69,7 @@ class Distiller(keras.Model):
             `alpha`: weight assigned to student loss. Correspondingly, weight assigned
                 to distillation loss is `1 - alpha`. Defaults to `0.1`.
             `temperature`: Temperature for softening probability distributions. Larger
-                temperature gives softer distributions. Defaults to `4.0`.
+                temperature gives softer distributions. Defaults to `10`.
         
         Kwargs:
             Additional keyword arguments passed to `keras.Model.compile`.
@@ -95,14 +94,12 @@ class Distiller(keras.Model):
         Returns:
             List of training metrics.
         """
-        train_metrics = self.metrics
-        train_metrics.extend([
+        return [
             self.loss_student_metric,
             self.loss_distill_metric,
             self.loss_total_metric,
             self.accuracy_metric
-        ])
-        return train_metrics
+        ]
     
     @property
     def val_metrics(self) -> List[keras.metrics.Metric]:
@@ -111,35 +108,30 @@ class Distiller(keras.Model):
         Returns:
             List of validation metrics.
         """
-        val_metrics = self.metrics
-        val_metrics.extend([
+        return [
             self.loss_student_metric,
             self.accuracy_metric
-        ])
-        return val_metrics
+        ]
 
     def train_step(self, data):
         # Unpack data
         x, y = data
 
-        # Forward pass of teacher
-        teacher_logits = self.teacher(x, training=False)
-
         with tf.GradientTape(watch_accessed_variables=False) as tape:
             tape.watch(self.student.trainable_variables)
 
-            # Forward pass of student
+            # Forward pass
+            teacher_logits = self.teacher(x, training=False)
             student_logits = self.student(x, training=True)
 
-            # Compute losses
+            # Standard loss with training data
             loss_student = self.student_loss_fn(y, student_logits)
-
-            # Compute scaled distillation loss from https://arxiv.org/abs/1503.02531
+            # Scaled distillation loss from https://arxiv.org/abs/1503.02531
             # The magnitudes of the gradients produced by the soft targets scale
             # as 1/T^2, multiply them by T^2 when using both hard and soft targets.
             loss_distill = self.temperature**2 * self.distill_loss_fn(
-                tf.nn.softmax(teacher_logits / self.temperature, axis=1),
-                tf.nn.softmax(student_logits / self.temperature, axis=1),
+                tf.nn.softmax(teacher_logits/self.temperature, axis=1),
+                tf.nn.softmax(student_logits/self.temperature, axis=1),
             )
 
             loss_total = self.alpha*loss_student + (1 - self.alpha)*loss_distill
@@ -164,16 +156,13 @@ class Distiller(keras.Model):
 
        # Forward pass of student
         student_logits = self.student(x, training=False)
-        student_prob = tf.nn.softmax(student_logits, axis=1)
-
-        # Compute losses
-        loss_student = self.student_loss_fn(y, student_prob)
+        loss_student = self.student_loss_fn(y, student_logits)
 
         # Update the metrics, configured in `compile()`.
         self.loss_student_metric.update_state(loss_student)
-        self.accuracy_metric.update_state(y_true=y, y_pred=student_prob)
+        self.accuracy_metric.update_state(y_true=y, y_pred=student_logits)
 
-        results = {m.name: m.result() for m in self.train_metrics}
+        results = {m.name: m.result() for m in self.val_metrics}
         return results
 
     def build(self):
@@ -225,7 +214,6 @@ class Distiller(keras.Model):
         return super().from_config(config, custom_objects)
 
 if __name__ == '__main__':
-    tf.config.run_functions_eagerly(True)
     # Change path
     import os, sys
     repo_path = os.path.abspath(os.path.join(__file__, '../../..'))
