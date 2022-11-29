@@ -17,30 +17,36 @@ class DataFreeGenerator(keras.Model):
     """DCGAN Generator model implemented in Data-Free Learning of Student Networks - 
     Chen et al. (2019), replicated with the same architecture.
 
+    Args:
+        `latent_dim`: Dimension of latent space. Defaults to `100`.
+        `image_dim`: Dimension of synthetic images. Defaults to `[32, 32, 1]`.
+        `dafl_batchnorm`: Flag to use same configuration for Batch Normalization
+            layers as in original DAFL paper. Defaults to `True`.
+
+    Kwargs:
+        Additional keyword arguments passed to `keras.Model.__init__`.
+
     Original: Unsupervised representation learning with deep convolutional
     generative adversarial networks - Radford et al. (2015)
     DOI: 10.48550/arXiv.1511.06434
-
-    Args:
-        `latent_dim`: Dimension of latent space. Defaults to `100`.
-        `image_dim`: Dimension of synthetic images. Defaults to `[32, 32, 3]`.
-        `dafl_batchnorm`: Flag to use same configuration for Batch Normalization
-            layers as in original DAFL paper. Defaults to `True`.
     """    
     _name = 'DataFreeGen'
 
     def __init__(self,
                  latent_dim:int=100,
-                 image_dim:List[int]=[32, 32, 3],
+                 image_dim:List[int]=[32, 32, 1],
                  dafl_batchnorm:bool=True,
                  **kwargs):
         """Initialize generator.
         
         Args:
             `latent_dim`: Dimension of latent space. Defaults to `100`.
-            `image_dim`: Dimension of synthetic images. Defaults to `[32, 32, 3]`.
+            `image_dim`: Dimension of synthetic images. Defaults to `[32, 32, 1]`.
             `dafl_batchnorm`: Flag to use same configuration for Batch Normalization
                 layers as in original DAFL paper. Defaults to `True`.
+
+        Kwargs:
+            Additional keyword arguments passed to `keras.Model.__init__`.
         """
         assert isinstance(dafl_batchnorm, bool), '`dafl_batchnorm` must be of type bool'
         super().__init__(self, name=self._name, **kwargs)
@@ -48,7 +54,7 @@ class DataFreeGenerator(keras.Model):
         self.image_dim = image_dim
         self.dafl_batchnorm = dafl_batchnorm
 
-        self._INIT_DIM = [self.image_dim[0]//4, self.image_dim[1]//4]
+        self._BASE_DIM = [self.image_dim[0]//4, self.image_dim[1]//4, 128]
         if self.dafl_batchnorm is True:
             self._EPSILONS = [1e-5, 0.8, 0.8, 1e-5]
             self._MOMENTUM = 0.9
@@ -56,8 +62,8 @@ class DataFreeGenerator(keras.Model):
             self._EPSILONS = [keras.layers.BatchNormalization().epsilon]*4 # 1e-3
             self._MOMENTUM = keras.layers.BatchNormalization().momentum # 0.99
 
-        self.dense = keras.layers.Dense(units=self._INIT_DIM[0] * self._INIT_DIM[1] * 128)
-        self.reshape = keras.layers.Reshape(target_shape=(self._INIT_DIM[0], self._INIT_DIM[1], 128))
+        self.dense = keras.layers.Dense(units=tf.math.reduce_prod(self._BASE_DIM))
+        self.reshape = keras.layers.Reshape(target_shape=self._BASE_DIM)
         self.conv_block_0 = keras.Sequential(
             layers=[keras.layers.BatchNormalization(momentum=self._MOMENTUM, epsilon=self._EPSILONS[0])],
             name='conv_block_0'
@@ -96,13 +102,22 @@ class DataFreeGenerator(keras.Model):
         return x
 
     def build(self):
-        super(DataFreeGenerator, self).build(input_shape=[None, self.latent_dim])
+        super().build(input_shape=[None, self.latent_dim])
 
-    def summary(self, with_graph:bool=False, **kwargs):
+    def summary(self, as_functional:bool=False, **kwargs):
+        """Prints a string summary of the network.
+
+        Args:
+            `as_functional`: Flag to print from a dummy functional model.
+                Defaults to `False`.
+
+        Kwargs:
+            Additional keyword arguments passed to `keras.Model.summary`.
+        """
         inputs = keras.layers.Input(shape=[self.latent_dim])
         outputs = self.call(inputs)
 
-        if with_graph is True:
+        if as_functional is True:
             dummy_model = keras.Model(inputs=inputs, outputs=outputs, name=self.name)
             dummy_model.summary(**kwargs)
         else:
@@ -132,13 +147,16 @@ class DataFreeDistiller(keras.Model):
             generator. Defaults to `None`.
         `image_dim`: Dimension of synthetic image, leave as `None` to be parsed from
             generator. Defaults to `None`.
+
+    Kwargs:
+        Additional keyword arguments passed to `keras.Model.__init__`.
     
     Data-Free Learning of Student Networks - Chen et al. (2019)         
     DOI: 10.48550/arXiv.1904.01186  
     
     Implementation in PyTorch: https://github.com/autogyro/DAFL
     """
-    _name = 'DataFreeDistiller'
+    _name = 'DAFLGen'
 
     def __init__(self,
                  teacher:keras.Model,
@@ -157,6 +175,9 @@ class DataFreeDistiller(keras.Model):
                 generator. Defaults to `None`.
             `image_dim`: Dimension of synthetic image, leave as `None` to be parsed from
                 generator. Defaults to `None`.
+
+        Kwargs:
+            Additional keyword arguments passed to `keras.Model.__init__`.
         """
         super().__init__(name=self._name, **kwargs)
         self.teacher = teacher
@@ -221,14 +242,18 @@ class DataFreeDistiller(keras.Model):
                 Defaults to `keras.losses.SparseCategoricalCrossentropy()`.
             `batch_size`: Size of each synthetic batch. Defaults to `512`.
             `num_batches`: Number of training batches each epoch. Defaults to `120`.
+            `coeff_oh`: Coefficient of one-hot loss. Defaults to `1`.
             `coeff_ac`: Coefficient of activation loss. Defaults to `0.1`.
-            `beta`: Coefficient of information entropy loss. Defaults to `5`.
+            `coeff_ie`: Coefficient of information entropy loss. Defaults to `5`.
             `confidence`: Confidence threshold for filtering out low-quality synthetic
             images (evaluated by the teacher) before distillation.
                 Options:
                     `None`: do not apply
                     `float` number in the range [0, 1]: apply with one threshold
                 Defaults to `None`.
+
+        Kwargs:
+            Additional keyword arguments passed to `keras.Model.compile`.
         """
 
         if not isinstance(onehot_loss_fn, (keras.losses.Loss, bool)):
@@ -282,13 +307,16 @@ class DataFreeDistiller(keras.Model):
         )
 
         # Metrics
-        self.loss_onehot_metric = keras.metrics.Mean(name='loss_oh')
-        self.loss_activation_metric = keras.metrics.Mean(name='loss_ac')
-        self.loss_info_entropy_metric = keras.metrics.Mean(name='loss_ie')
+        if self.onehot_loss_fn is not False:
+            self.loss_onehot_metric = keras.metrics.Mean(name='loss_oh')
+        if self.activation_loss_fn is not False:
+            self.loss_activation_metric = keras.metrics.Mean(name='loss_ac')
+        if self.info_entropy_loss_fn is not False:
+            self.loss_info_entropy_metric = keras.metrics.Mean(name='loss_ie')
         self.loss_generator_metric = keras.metrics.Mean(name='loss_gen')
         self.loss_distill_metric = keras.metrics.Mean(name='loss_dt')
 
-        self.accuracy_metric = keras.metrics.Accuracy(name='accuracy')
+        self.accuracy_metric = keras.metrics.SparseCategoricalAccuracy(name='accuracy')
         self.loss_student_metric = keras.metrics.Mean(name='loss_student')
 
     @property
@@ -297,12 +325,18 @@ class DataFreeDistiller(keras.Model):
         
         Returns:
             List of training metrics.
-        """        
-        return [self.loss_onehot_metric,
-                self.loss_activation_metric,
-                self.loss_info_entropy_metric,
-                self.loss_generator_metric,
-                self.loss_distill_metric]
+        """
+        train_metrics = [
+            self.loss_generator_metric,
+            self.loss_distill_metric
+        ]
+        if self.onehot_loss_fn is not False:
+            train_metrics.append(self.loss_onehot_metric)
+        if self.activation_loss_fn is not False:
+            train_metrics.append(self.loss_activation_metric)
+        if self.info_entropy_loss_fn is not False:
+            train_metrics.append(self.loss_info_entropy_metric)
+        return train_metrics
     
     @property
     def val_metrics(self) -> List[keras.metrics.Metric]:
@@ -356,9 +390,12 @@ class DataFreeDistiller(keras.Model):
         del tape
 
         # Update the metrics, configured in 'compile()'
-        self.loss_onehot_metric.update_state(loss_onehot)
-        self.loss_activation_metric.update_state(loss_activation)
-        self.loss_info_entropy_metric.update_state(loss_info_entropy)
+        if self.onehot_loss_fn is not False:
+            self.loss_onehot_metric.update_state(loss_onehot)
+        if self.activation_loss_fn is not False:
+            self.loss_activation_metric.update_state(loss_activation)
+        if self.info_entropy_loss_fn is not False:
+            self.loss_info_entropy_metric.update_state(loss_info_entropy)
         self.loss_generator_metric.update_state(loss_generator)
         self.loss_distill_metric.update_state(loss_distill)
         results = {m.name: m.result() for m in self.train_metrics}
@@ -405,9 +442,12 @@ class DataFreeDistiller(keras.Model):
         del tape
 
         # Update the metrics, configured in 'compile()'
-        self.loss_onehot_metric.update_state(loss_onehot)
-        self.loss_activation_metric.update_state(loss_activation)
-        self.loss_info_entropy_metric.update_state(loss_info_entropy)
+        if self.onehot_loss_fn is not False:
+            self.loss_onehot_metric.update_state(loss_onehot)
+        if self.activation_loss_fn is not False:
+            self.loss_activation_metric.update_state(loss_activation)
+        if self.info_entropy_loss_fn is not False:
+            self.loss_info_entropy_metric.update_state(loss_info_entropy)
         self.loss_generator_metric.update_state(loss_generator)
         self.loss_distill_metric.update_state(loss_distill)
         results = {m.name: m.result() for m in self.train_metrics}
@@ -419,18 +459,24 @@ class DataFreeDistiller(keras.Model):
 
         # Compute predictions
         student_prob = self.student(x, training=False)
-        student_pred = tf.math.argmax(input=student_prob, axis=1)
 
         # Calculate the loss
         loss_student = self.student_loss_fn(y, student_prob)
         
         # Update the metrics, configured in 'compile()'
-        self.accuracy_metric.update_state(y_true=y, y_pred=student_pred)
+        self.accuracy_metric.update_state(y_true=y, y_pred=student_prob)
         self.loss_student_metric.update_state(loss_student)
         results = {m.name: m.result() for m in self.val_metrics}
         return results
 
     def fit(self, **kwargs):
+        """Fit the model with placeholder data generator to bypass 
+        `keras.Model.fit`.
+        
+        Kwargs:
+            Additional keyword arguments passed to `keras.Model.fit`, excluding `x` and
+            `steps_per_epoch`.
+        """        
         super().fit(x=self.train_data, steps_per_epoch=self.num_batches, **kwargs)
 
     @staticmethod
