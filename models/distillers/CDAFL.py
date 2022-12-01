@@ -354,7 +354,7 @@ class CDAFL(DataFreeDistiller):
                  num_classes:Union[None, int]=None,
                  onehot_input:Union[None, bool]=None,
                  **kwargs):
-        super(CDAFL, self).__init__(
+        super().__init__(
             teacher=teacher,
             student=student,
             generator=generator,
@@ -383,6 +383,7 @@ class CDAFL(DataFreeDistiller):
                 onehot_loss_fn:Union[bool, keras.losses.Loss]=True,
                 activation_loss_fn:Union[bool, keras.losses.Loss]=True,
                 info_entropy_loss_fn:Union[bool, keras.losses.Loss]=True,
+                conditional_loss_fn:Union[bool, keras.losses.Loss]=True,
                 distill_loss_fn:keras.losses.Loss=keras.losses.KLDivergence(),
                 student_loss_fn:keras.losses.Loss=keras.losses.SparseCategoricalCrossentropy(),
                 batch_size:int=500,
@@ -390,6 +391,7 @@ class CDAFL(DataFreeDistiller):
                 coeff_oh:float=1,
                 coeff_ac:float=0.1,
                 coeff_ie:float=5,
+                coeff_cn:float=1,
                 confidence:float=None,
                 **kwargs):
 
@@ -398,7 +400,7 @@ class CDAFL(DataFreeDistiller):
                 f'`batch_size` {batch_size} is not divisible by `num_classes` '+
                 f'{self.num_classes} and will give unevenly distributed batches.')
 
-        super(CDAFL, self).compile(
+        super().compile(
             optimizer_student=optimizer_student,
             optimizer_generator=optimizer_generator,
             onehot_loss_fn=onehot_loss_fn,
@@ -413,7 +415,33 @@ class CDAFL(DataFreeDistiller):
             coeff_ie=coeff_ie,
             confidence=confidence,
             **kwargs)
+        self.conditional_loss_fn = conditional_loss_fn
+        self.coeff_cn = coeff_cn
+
+        # Config conditional loss
+        if self.conditional_loss_fn is True:
+            self._conditional_loss_fn = keras.losses.SparseCategoricalCrossentropy()
+        elif self.conditional_loss_fn is False:
+            self._conditional_loss_fn = lambda *args, **kwargs:0
+        else:
+            self._conditional_loss_fn = self.conditional_loss_fn
+
+        # Additional metrics
+        if self.conditional_loss_fn is not False:
+            self.loss_conditional_metric = keras.metrics.Mean(name='loss_cn')
         
+    @property
+    def train_metrics(self) -> List[keras.metrics.Metric]:        
+        """Metrics monitoring training step.
+        
+        Returns:
+            List of training metrics.
+        """
+        train_metrics = super().train_metrics
+        if self.conditional_loss_fn is not False:
+            train_metrics.append(self.loss_conditional_metric)
+        return train_metrics
+
     def train_step(self, data):
         with tf.GradientTape(persistent=True, watch_accessed_variables=False) as tape:
             # Specify trainable variables
@@ -431,12 +459,21 @@ class CDAFL(DataFreeDistiller):
                 x_synth = self.generator([latent_noise, oh_label], training=True)
             elif self.onehot_input is False:
                 x_synth = self.generator([latent_noise, label], training=True)
+            
             teacher_prob, teacher_fmap = self.teacher(x_synth, training=False)
+            pseudo_label = tf.math.argmax(input=teacher_prob, axis=1)
 
-            loss_onehot = self._onehot_loss_fn(label, teacher_prob)
+            loss_onehot = self._onehot_loss_fn(pseudo_label, teacher_prob)
             loss_activation = self._activation_loss_fn(teacher_fmap)
             loss_info_entropy = self._info_entropy_loss_fn(teacher_prob)
-            loss_generator = self.coeff_oh*loss_onehot + self.coeff_ac*loss_activation + self.coeff_ie*loss_info_entropy
+            loss_conditional = self._conditional_loss_fn(label, teacher_prob)
+
+            loss_generator = (
+                self.coeff_oh*loss_onehot + 
+                self.coeff_ac*loss_activation + 
+                self.coeff_ie*loss_info_entropy +
+                self.coeff_cn*loss_conditional
+            )
             
             # Phase 2: Training the student network.
             # Detach gradient graph of generator and teacher
@@ -463,9 +500,14 @@ class CDAFL(DataFreeDistiller):
         del tape
 
         # Update the metrics, configured in 'compile()'
-        self.loss_onehot_metric.update_state(loss_onehot)
-        self.loss_activation_metric.update_state(loss_activation)
-        self.loss_info_entropy_metric.update_state(loss_info_entropy)
+        if self.onehot_loss_fn is not False:
+            self.loss_onehot_metric.update_state(loss_onehot)
+        if self.activation_loss_fn is not False:
+            self.loss_activation_metric.update_state(loss_activation)
+        if self.info_entropy_loss_fn is not False:
+            self.loss_info_entropy_metric.update_state(loss_info_entropy)
+        if self.conditional_loss_fn is not False:
+            self.loss_conditional_metric.update_state(loss_conditional)
         self.loss_generator_metric.update_state(loss_generator)
         self.loss_distill_metric.update_state(loss_distill)
         results = {m.name: m.result() for m in self.train_metrics}
@@ -495,11 +537,11 @@ if __name__ == '__main__':
         BATCH_SIZE_TEACHER, BATCH_SIZE_DISTILL = 256, 500 # Change 512 to 500 for evenly distributed classes
         NUM_EPOCHS_TEACHER, NUM_EPOCHS_DISTILL = 10, 200
         OPTIMIZER_TEACHER = keras.optimizers.Adam(learning_rate=1e-3, epsilon=1e-8)
-        OPTIMIZER_GENERATOR = keras.optimizers.Adam(learning_rate=2e-2, epsilon=1e-8)
-        OPTIMIZER_STUDENT = keras.optimizers.Adam(learning_rate=2e-4, epsilon=1e-8)
-        # OPTIMIZER_GENERATOR = keras.optimizers.SGD(learning_rate=2e-2)
-        # OPTIMIZER_STUDENT = keras.optimizers.SGD(learning_rate=2e-4)
-        COEFF_OH, COEFF_AC, COEFF_IE = 1, 0.1, 5
+        # OPTIMIZER_GENERATOR = keras.optimizers.Adam(learning_rate=2e-2, epsilon=1e-8)
+        # OPTIMIZER_STUDENT = keras.optimizers.Adam(learning_rate=2e-4, epsilon=1e-8)
+        OPTIMIZER_GENERATOR = keras.optimizers.SGD(learning_rate=2e-2)
+        OPTIMIZER_STUDENT = keras.optimizers.SGD(learning_rate=2e-4)
+        COEFF_OH, COEFF_AC, COEFF_IE, COEFF_CN = 1, 0.1, 5, 1
 
         print(' Experiment 1: CDAFL on MNIST. Teacher: LeNet-5, student: LeNet-5-HALF '.center(80,'#'))
 
@@ -538,7 +580,6 @@ if __name__ == '__main__':
                 ds['train'],
                 epochs=NUM_EPOCHS_TEACHER,
                 callbacks=[best_callback, csv_logger],
-                shuffle=True,
                 validation_data=ds['test']
             )
             teacher.load_weights(filepath=f'./logs/{teacher.name}_best.h5')
@@ -560,7 +601,6 @@ if __name__ == '__main__':
             dafl_batchnorm=True
         )
         generator.build()
-        generator.summary(with_graph=True, line_length=120, expand_nested=True)
 
         # Train one student with default data-free learning settings
         distiller = CDAFL(
@@ -568,9 +608,10 @@ if __name__ == '__main__':
         distiller.compile(
             optimizer_student=OPTIMIZER_STUDENT,
             optimizer_generator=OPTIMIZER_GENERATOR,
-            onehot_loss_fn=True,
+            onehot_loss_fn=False,
             activation_loss_fn=True,
             info_entropy_loss_fn=False,
+            conditional_loss_fn=True,
             distill_loss_fn=keras.losses.KLDivergence(),
             student_loss_fn=keras.losses.SparseCategoricalCrossentropy(),
             batch_size=BATCH_SIZE_DISTILL,
@@ -578,6 +619,7 @@ if __name__ == '__main__':
             coeff_oh=COEFF_OH,
             coeff_ac=COEFF_AC,
             coeff_ie=COEFF_IE,
+            coeff_cn=COEFF_CN,
             confidence=None
         )
 
