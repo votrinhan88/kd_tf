@@ -420,7 +420,10 @@ class CDAFL(DataFreeDistiller):
 
         # Config conditional loss
         if self.conditional_loss_fn is True:
-            self._conditional_loss_fn = keras.losses.SparseCategoricalCrossentropy()
+            if self.onehot_input is True:
+                self._conditional_loss_fn = keras.losses.CategoricalCrossentropy()
+            elif self.onehot_input is False:
+                self._conditional_loss_fn = keras.losses.SparseCategoricalCrossentropy()
         elif self.conditional_loss_fn is False:
             self._conditional_loss_fn = lambda *args, **kwargs:0
         else:
@@ -450,13 +453,16 @@ class CDAFL(DataFreeDistiller):
 
             # Phase 1 - Training the conditional Generator
             latent_noise = tf.random.normal(shape=[self.batch_size, self.latent_dim])
-            label = tf.cast(
-                tf.math.floor(tf.linspace(start=0, stop=self.num_classes, num=self.batch_size+1)[0:-1]),
-                dtype=tf.int32
-            )
+            # label = tf.cast(
+            #     tf.math.floor(tf.linspace(start=0, stop=self.num_classes, num=self.batch_size+1)[0:-1]),
+            #     dtype=tf.int32
+            # )
             if self.onehot_input is True:
-                oh_label = tf.one_hot(indices=label, depth=self.num_classes)
-                x_synth = self.generator([latent_noise, oh_label], training=True)
+                # # Convert to one-hot label
+                # oh_label = tf.one_hot(indices=label, depth=self.num_classes)
+                label = tf.random.uniform(shape=[self.batch_size, self.num_classes])
+                label = label/tf.tile(tf.math.reduce_sum(label, axis=1, keepdims=True), multiples=[1, self.num_classes])
+                x_synth = self.generator([latent_noise, label], training=True)
             elif self.onehot_input is False:
                 x_synth = self.generator([latent_noise, label], training=True)
             
@@ -597,7 +603,7 @@ if __name__ == '__main__':
             image_dim=IMAGE_DIM,
             embed_dim=None,
             num_classes=NUM_CLASSES,
-            onehot_input=False,
+            onehot_input=True,
             dafl_batchnorm=True
         )
         generator.build()
