@@ -870,7 +870,7 @@ if __name__ == '__main__':
     from dataloader import dataloader
     from models.classifiers.LeNet_5 import LeNet_5_ReLU_MaxPool
     from models.classifiers.ResNet_DAFL import ResNet_DAFL
-    from models.distillers.utils import CSVLogger_custom, add_fmap_output
+    from models.distillers.utils import CSVLogger_custom, convert_to_functional, add_intermediate_outputs
     from models.GANs.utils import MakeSyntheticGIFCallback
 
     def run_experiment_mnist(pretrained_teacher:bool=False):
@@ -935,7 +935,12 @@ if __name__ == '__main__':
             )
             teacher.load_weights(filepath=f'./logs/{teacher.name}_best.h5')
         teacher.evaluate(ds['test'])
-        teacher = add_fmap_output(model=teacher, fmap_layer='flatten')
+        teacher = convert_to_functional(
+            model=teacher,
+            inputs=keras.layers.Input(shape=teacher.input_dim))
+        teacher = add_intermediate_outputs(
+            model=teacher,
+            layers=teacher.get_layer('flatten'))
 
         # Student (LeNet-5-HALF)
         student = LeNet_5_ReLU_MaxPool(half=True, input_dim=IMAGE_DIM, num_classes=NUM_CLASSES)
@@ -1055,7 +1060,12 @@ if __name__ == '__main__':
             )
             teacher.load_weights(filepath=f'./logs/{teacher.name}_best.h5')
         teacher.evaluate(ds['test'])
-        teacher = add_fmap_output(model=teacher, fmap_layer='glb_pool')
+        teacher = convert_to_functional(
+            model=teacher,
+            inputs=keras.layers.Input(shape=teacher.input_dim))
+        teacher = add_intermediate_outputs(
+            model=teacher,
+            layers=teacher.get_layer('glb_pool'))
 
         # Student (ResNet-18)
         student = ResNet_DAFL(ver=18, input_dim=IMAGE_DIM, num_classes=NUM_CLASSES)
