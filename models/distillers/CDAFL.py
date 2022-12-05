@@ -672,7 +672,7 @@ if __name__ == '__main__':
         )
         class_names = info.features['label'].names
 
-        # Teacher (LeNet-5)
+        # Teacher (AlexNet)
         teacher = AlexNet(input_dim=IMAGE_DIM, num_classes=NUM_CLASSES)
         teacher.compile(
             metrics=['accuracy'], 
@@ -681,7 +681,7 @@ if __name__ == '__main__':
         teacher.build()
 
         if pretrained_teacher is True:
-            teacher.load_weights('./pretrained/mnist/mean0_std1/LeNet-5_ReLU_MaxPool_9900.h5')
+            teacher.load_weights('./pretrained/mnist/mean0_std1/AlexNet_9945.h5')
         elif pretrained_teacher is False:
             best_callback = keras.callbacks.ModelCheckpoint(
                 filepath=f'./logs/{teacher.name}_best.h5',
@@ -703,7 +703,7 @@ if __name__ == '__main__':
         teacher.evaluate(ds['test'])
         teacher = add_fmap_output(model=teacher, fmap_layer='flatten')
 
-        # Student (LeNet-5-HALF)
+        # Student (AlexNet-Half)
         student = AlexNet(half=True, input_dim=IMAGE_DIM, num_classes=NUM_CLASSES)
         student.build()
         student.compile(metrics='accuracy')
