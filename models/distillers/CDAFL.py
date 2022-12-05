@@ -549,6 +549,7 @@ class CDAFL(DataFreeDistiller):
         return results
 
     @staticmethod
+    @tf.function
     def _distribution_loss_fn(fmap, distribution_layer:keras.layers.BatchNormalization):
         batch_mean = tf.reduce_mean(
             input_tensor=fmap,

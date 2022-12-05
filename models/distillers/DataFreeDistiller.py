@@ -480,6 +480,7 @@ class DataFreeDistiller(keras.Model):
         super().fit(x=self.train_data, steps_per_epoch=self.num_batches, **kwargs)
 
     @staticmethod
+    @tf.function
     def _activation_loss_fn(inputs:tf.Tensor) -> tf.Tensor:        
         """Activation loss function. Typical used with the teacher model's
         flattened feature map.
@@ -493,6 +494,7 @@ class DataFreeDistiller(keras.Model):
         return loss
 
     @staticmethod
+    @tf.function
     def _info_entropy_loss_fn(inputs):
         """Information entropy loss function. Typically used with the teacher model's
         prediction (probability).
