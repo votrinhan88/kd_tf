@@ -449,7 +449,7 @@ class CDAFL(DataFreeDistiller):
         if self.conditional_loss_fn is not False:
             self.loss_conditional_metric = keras.metrics.Mean(name='loss_cn')
         if self.distribution_loss_fn is not False:
-            self.loss_conditional_metric = keras.metrics.Mean(name='loss_ds')
+            self.loss_distribution_metric = keras.metrics.Mean(name='loss_ds')
         
     @property
     def train_metrics(self) -> List[keras.metrics.Metric]:        
@@ -461,6 +461,8 @@ class CDAFL(DataFreeDistiller):
         train_metrics = super().train_metrics
         if self.conditional_loss_fn is not False:
             train_metrics.append(self.loss_conditional_metric)
+        if self.distribution_loss_fn is not False:
+            train_metrics.append(self.loss_distribution_metric)
         return train_metrics
 
     def train_step(self, data):
@@ -501,7 +503,8 @@ class CDAFL(DataFreeDistiller):
                 self.coeff_oh*loss_onehot + 
                 self.coeff_ac*loss_activation + 
                 self.coeff_ie*loss_info_entropy +
-                self.coeff_cn*loss_conditional
+                self.coeff_cn*loss_conditional +
+                self.coeff_ds*loss_distribution
             )
             
             # Phase 2: Training the student network.
@@ -537,17 +540,29 @@ class CDAFL(DataFreeDistiller):
             self.loss_info_entropy_metric.update_state(loss_info_entropy)
         if self.conditional_loss_fn is not False:
             self.loss_conditional_metric.update_state(loss_conditional)
+        if self.distribution_loss_fn is not False:
+            self.loss_distribution_metric.update_state(loss_distribution)
+
         self.loss_generator_metric.update_state(loss_generator)
         self.loss_distill_metric.update_state(loss_distill)
         results = {m.name: m.result() for m in self.train_metrics}
         return results
 
     @staticmethod
-    def _distribution_loss_fn(fmap, distribution_layer):
-        # fmap: 13 * 13 * 48
-        # distribution_layer.moving_mean, .moving_variance: 48
-        target = distribution_layer
-        loss = tf.norm(target - fmap, ord=2)
+    def _distribution_loss_fn(fmap, distribution_layer:keras.layers.BatchNormalization):
+        batch_mean = tf.reduce_mean(
+            input_tensor=fmap,
+            axis=tf.range(tf.rank(fmap)-1))
+
+        batch_mean_broadcast = tf.broadcast_to(batch_mean, shape=tf.shape(fmap))
+        batch_variance = tf.reduce_mean(
+            input_tensor=(fmap - batch_mean_broadcast)**2,
+            axis=tf.range(tf.rank(fmap)-1))
+
+        loss = (
+            tf.norm(distribution_layer.moving_mean - batch_mean, ord=2) +
+            tf.norm(distribution_layer.moving_variance - batch_variance, ord=2)
+        )
         return loss
 
 def define_AlexNet_transparent(
@@ -976,4 +991,4 @@ if __name__ == '__main__':
             validation_data=ds['test']
         )
 
-    run_experiment_mnist_alexnet_with_distribution_loss(pretrained_teacher=False)
+    run_experiment_mnist_alexnet_with_distribution_loss(pretrained_teacher=True)
