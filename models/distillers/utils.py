@@ -42,35 +42,54 @@ class PlaceholderDataGenerator(keras.utils.Sequence):
     def __getitem__(self, index=None) -> Tuple[tf.Tensor, tf.Tensor]:
         return tf.zeros(shape=[self.batch_size, 1]), tf.zeros(shape=[self.batch_size, 1])
 
-def add_fmap_output(model:keras.Model,
-                    fmap_layer:str,
-                    as_functional:bool=False,
-                    input_dim:Union[None, List[int]]=None) -> keras.Model:
-    """Extract a model's feature map and add to its outputs. Single-use for each
-    model.
+def convert_to_functional(
+        model:keras.Model,
+        inputs:Union[None, keras.layers.Input, List[keras.layers.Input]]=None,
+        **kwargs) -> keras.Model:
+    """Convert a model to functional with the Functional API.
     
     Args:
-        `model`: Host model of feature map.
-        `fmap_layer`: Name of feature map layer.
-        `input_dim`: Dimension of model's input, leave as `None` to be parsed from
-            model. Defaults to `None`.
+        `model`: Subclassed model.
+        `inputs`: One or a list of `keras.layers.Input` layers suitable with the model's
+            architecture. Leave as `None` to be parsed from `model.input`.
+    
+    Kwargs:
+        Additional keyword arguments passed to `keras.Model`, excluding `name`.
+
     Returns:
-        Host model with an additional feature map output using the Functional API.
+        A functional model.
     """
-    if as_functional is True:
+    if inputs is None:
         inputs = model.input
-        outputs = model.output
-    elif as_functional is False:
-        if input_dim is None:
-            input_dim = model.input_dim
-        inputs = keras.layers.Input(shape=input_dim)
-        outputs = model.call(inputs)
+    outputs = model.call(inputs)
+    model = keras.Model(inputs=inputs, outputs=outputs, name=model.name, **kwargs)
+    return model
 
+def add_intermediate_outputs(
+        model:keras.Model,
+        layers:Union[keras.layers.Layer, List[keras.layers.Layer]],
+        ) -> keras.Model:
+    """Extract a model's intermediate layer(s) as additional outputs.
+    
+    Args:
+        `model`: Host model of feature map, must be a functional model.
+        `layers`: One or a list of `keras.layers.Layer` internal of `model`.
+    
+    Kwargs:
+        Additional keyword arguments passed to `keras.Model`, excluding `name`.
+
+    Returns:
+        Host model with additional intermediate outputs.
+    """
+    if isinstance(layers, keras.layers.Layer):
+        intermediates = [layers.output]
+    else:
+        intermediates = [layer.output for layer in layers]
+    
     model = keras.Model(
-        inputs=inputs,
-        outputs=[outputs, model.get_layer(fmap_layer).output],
+        inputs=model.input,
+        outputs=[model.output, *intermediates],
         name=model.name)
-
     return model
 
 class CSVLogger_custom(keras.callbacks.CSVLogger):
@@ -325,7 +344,6 @@ class LearningRateSchedulerCustom(keras.callbacks.Callback):
             )
         return super().on_epoch_begin(epoch, logs)
 
-
 if __name__ == '__main__':
     import os, sys
     repo_path = os.path.abspath(os.path.join(__file__, '../../..'))
@@ -334,25 +352,21 @@ if __name__ == '__main__':
 
     from models.classifiers.LeNet_5 import LeNet_5
 
-    def test_add_fmap_output():
+    def test_add_intermediate_outputs():
         # Subclassed model
         net1 = LeNet_5()
         net1.build()
-        net1 = add_fmap_output(model=net1, fmap_layer='flatten', as_functional=False)
-        # Functional model
-        net2 = LeNet_5()
-        inputs = keras.layers.Input(shape=net2.input_dim)
-        net2 = keras.Model(inputs=inputs, outputs=net2.call(inputs))
-        net2 = add_fmap_output(model=net2, fmap_layer='flatten', as_functional=True)
+        net1 = convert_to_functional(
+            model=net1,
+            inputs=keras.layers.Input(shape=net1.input_dim))
+        net1 = add_intermediate_outputs(
+            model=net1,
+            layers=[net1.get_layer('flatten')])
         # Results
-        print(' Test `add_fmap_output` '.center(80,'#'))
+        print(' Test `add_intermediate_outputs` '.center(80,'#'))
         if len(net1.output) == 2:
-            print('Subclassed model: PASSED')
+            print('PASSED')
         else:
-            print('Subclassed model: FAILED')
-        if len(net2.output) == 2:
-            print('Functional model: PASSED')
-        else:
-            print('Subclassed model: FAILED')
+            print('FAILED')
 
-    test_add_fmap_output()
+    test_add_intermediate_outputs()
