@@ -522,10 +522,11 @@ class CDAFL(DataFreeDistiller):
 if __name__ == '__main__':
     from dataloader import dataloader
     from models.classifiers.LeNet_5 import LeNet_5_ReLU_MaxPool
+    from models.classifiers.AlexNet import AlexNet
     from models.distillers.utils import add_fmap_output
     from models.GANs.utils import MakeConditionalSyntheticGIFCallback, MakeInterpolateSyntheticGIFCallback
 
-    def run_experiment_mnist(pretrained_teacher:bool=False):
+    def run_experiment_mnist_lenet5(pretrained_teacher:bool=False):
         # Experiment 4.1: Classification result on the MNIST dataset
         #                                       LeNet-5        HintonNets
         # Teacher:                              LeNet-5        Hinton-784-1200-1200-10
@@ -647,4 +648,114 @@ if __name__ == '__main__':
             validation_data=ds['test']
         )
 
-    run_experiment_mnist(pretrained_teacher=True)
+    def run_experiment_mnist_alexnet(pretrained_teacher:bool=False):
+        LATENT_DIM = 100
+        IMAGE_DIM = [28, 28, 1]
+        NUM_CLASSES = 10
+        BATCH_SIZE_TEACHER, BATCH_SIZE_DISTILL = 256, 500 # Change 512 to 500 for evenly distributed classes
+        NUM_EPOCHS_TEACHER, NUM_EPOCHS_DISTILL = 10, 200
+        OPTIMIZER_TEACHER = keras.optimizers.Adam(learning_rate=1e-3, epsilon=1e-8)
+        # OPTIMIZER_GENERATOR = keras.optimizers.Adam(learning_rate=2e-2, epsilon=1e-8)
+        # OPTIMIZER_STUDENT = keras.optimizers.Adam(learning_rate=2e-4, epsilon=1e-8)
+        OPTIMIZER_GENERATOR = keras.optimizers.SGD(learning_rate=2e-2)
+        OPTIMIZER_STUDENT = keras.optimizers.SGD(learning_rate=2e-4)
+        COEFF_OH, COEFF_AC, COEFF_IE, COEFF_CN = 1, 0.1, 5, 1
+
+        print(' Experiment 1: CDAFL on MNIST. Teacher: AlexNet, student: AlexNet-Half '.center(80,'#'))
+
+        ds, info = dataloader(
+            dataset='mnist',
+            rescale='standardization',
+            batch_size_train=BATCH_SIZE_TEACHER,
+            batch_size_test=1024,
+            with_info=True
+        )
+        class_names = info.features['label'].names
+
+        # Teacher (LeNet-5)
+        teacher = AlexNet(input_dim=IMAGE_DIM, num_classes=NUM_CLASSES)
+        teacher.compile(
+            metrics=['accuracy'], 
+            optimizer=OPTIMIZER_TEACHER,
+            loss=keras.losses.SparseCategoricalCrossentropy())
+        teacher.build()
+
+        if pretrained_teacher is True:
+            teacher.load_weights('./pretrained/mnist/mean0_std1/LeNet-5_ReLU_MaxPool_9900.h5')
+        elif pretrained_teacher is False:
+            best_callback = keras.callbacks.ModelCheckpoint(
+                filepath=f'./logs/{teacher.name}_best.h5',
+                monitor='val_accuracy',
+                save_best_only=True,
+                save_weights_only=True,
+            )
+            csv_logger = keras.callbacks.CSVLogger(
+                filename=f'./logs/{teacher.name}.csv',
+                append=True
+            )
+            teacher.fit(
+                ds['train'],
+                epochs=NUM_EPOCHS_TEACHER,
+                callbacks=[best_callback, csv_logger],
+                validation_data=ds['test']
+            )
+            teacher.load_weights(filepath=f'./logs/{teacher.name}_best.h5')
+        teacher.evaluate(ds['test'])
+        teacher = add_fmap_output(model=teacher, fmap_layer='flatten')
+
+        # Student (LeNet-5-HALF)
+        student = AlexNet(half=True, input_dim=IMAGE_DIM, num_classes=NUM_CLASSES)
+        student.build()
+        student.compile(metrics='accuracy')
+        student.evaluate(ds['test'])
+
+        generator = ConditionalDataFreeGenerator(
+            latent_dim=LATENT_DIM,
+            image_dim=IMAGE_DIM,
+            embed_dim=None,
+            num_classes=NUM_CLASSES,
+            onehot_input=True,
+            dafl_batchnorm=True
+        )
+        generator.build()
+
+        # Train one student with default data-free learning settings
+        distiller = CDAFL(
+            teacher=teacher, student=student, generator=generator)
+        distiller.compile(
+            optimizer_student=OPTIMIZER_STUDENT,
+            optimizer_generator=OPTIMIZER_GENERATOR,
+            onehot_loss_fn=False,
+            activation_loss_fn=True,
+            info_entropy_loss_fn=False,
+            conditional_loss_fn=True,
+            distill_loss_fn=keras.losses.KLDivergence(),
+            student_loss_fn=keras.losses.SparseCategoricalCrossentropy(),
+            batch_size=BATCH_SIZE_DISTILL,
+            num_batches=120,
+            coeff_oh=COEFF_OH,
+            coeff_ac=COEFF_AC,
+            coeff_ie=COEFF_IE,
+            coeff_cn=COEFF_CN,
+            confidence=None
+        )
+
+        csv_logger = keras.callbacks.CSVLogger(
+            filename=f'./logs/{distiller.name}_{student.name}_mnist.csv',
+            append=True
+        )
+        gif_maker = MakeConditionalSyntheticGIFCallback(
+            filename=f'./logs/{distiller.name}_{student.name}_mnist.gif',
+            postprocess_fn=lambda x:x*0.3081 + 0.1307,
+            normalize=False,
+            class_names=class_names,
+            delete_png=False,
+            save_freq=NUM_EPOCHS_DISTILL//50
+        )
+        distiller.fit(
+            epochs=NUM_EPOCHS_DISTILL,
+            callbacks=[csv_logger, gif_maker],
+            validation_data=ds['test']
+        )
+
+    run_experiment_mnist_alexnet(pretrained_teacher=False)
