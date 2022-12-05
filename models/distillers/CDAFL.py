@@ -384,6 +384,8 @@ class CDAFL(DataFreeDistiller):
                 activation_loss_fn:Union[bool, keras.losses.Loss]=True,
                 info_entropy_loss_fn:Union[bool, keras.losses.Loss]=True,
                 conditional_loss_fn:Union[bool, keras.losses.Loss]=True,
+                distribution_loss_fn:Union[bool, keras.losses.Loss]=True,
+                distribution_layer:Union[None, keras.layers.BatchNormalization]=None,
                 distill_loss_fn:keras.losses.Loss=keras.losses.KLDivergence(),
                 student_loss_fn:keras.losses.Loss=keras.losses.SparseCategoricalCrossentropy(),
                 batch_size:int=500,
@@ -392,6 +394,7 @@ class CDAFL(DataFreeDistiller):
                 coeff_ac:float=0.1,
                 coeff_ie:float=5,
                 coeff_cn:float=1,
+                coeff_ds:float=1,
                 confidence:float=None,
                 **kwargs):
 
@@ -416,7 +419,10 @@ class CDAFL(DataFreeDistiller):
             confidence=confidence,
             **kwargs)
         self.conditional_loss_fn = conditional_loss_fn
+        self.distribution_loss_fn = distribution_loss_fn
+        self.distribution_layer = distribution_layer
         self.coeff_cn = coeff_cn
+        self.coeff_ds = coeff_ds
 
         # Config conditional loss
         if self.conditional_loss_fn is True:
@@ -428,10 +434,22 @@ class CDAFL(DataFreeDistiller):
             self._conditional_loss_fn = lambda *args, **kwargs:0
         else:
             self._conditional_loss_fn = self.conditional_loss_fn
+        # Config distribution loss
+        if self.distribution_layer is None:
+            self.distribution_loss_fn = False
+        
+        if self.distribution_loss_fn is True:
+            pass
+        elif self.distribution_loss_fn is False:
+            self._distribution_loss_fn = lambda *args, **kwargs:0
+        else:
+            self._distribution_loss_fn = self.distribution_loss_fn
 
         # Additional metrics
         if self.conditional_loss_fn is not False:
             self.loss_conditional_metric = keras.metrics.Mean(name='loss_cn')
+        if self.distribution_loss_fn is not False:
+            self.loss_conditional_metric = keras.metrics.Mean(name='loss_ds')
         
     @property
     def train_metrics(self) -> List[keras.metrics.Metric]:        
@@ -466,13 +484,18 @@ class CDAFL(DataFreeDistiller):
             elif self.onehot_input is False:
                 x_synth = self.generator([latent_noise, label], training=True)
             
-            teacher_prob, teacher_fmap = self.teacher(x_synth, training=False)
+            if self.distribution_loss_fn is False:
+                (teacher_prob, teacher_flatten), teacher_conv = self.teacher(x_synth, training=False), None
+            else:
+                teacher_prob, teacher_flatten, teacher_conv = self.teacher(x_synth, training=False)
+
             pseudo_label = tf.math.argmax(input=teacher_prob, axis=1)
 
             loss_onehot = self._onehot_loss_fn(pseudo_label, teacher_prob)
-            loss_activation = self._activation_loss_fn(teacher_fmap)
+            loss_activation = self._activation_loss_fn(teacher_flatten)
             loss_info_entropy = self._info_entropy_loss_fn(teacher_prob)
             loss_conditional = self._conditional_loss_fn(label, teacher_prob)
+            loss_distribution = self._distribution_loss_fn(teacher_conv, self.distribution_layer)
 
             loss_generator = (
                 self.coeff_oh*loss_onehot + 
@@ -519,11 +542,84 @@ class CDAFL(DataFreeDistiller):
         results = {m.name: m.result() for m in self.train_metrics}
         return results
 
+    @staticmethod
+    def _distribution_loss_fn(fmap, distribution_layer):
+        # fmap: 13 * 13 * 48
+        # distribution_layer.moving_mean, .moving_variance: 48
+        target = distribution_layer
+        loss = tf.norm(target - fmap, ord=2)
+        return loss
+
+def define_AlexNet_transparent(
+            half:bool=False,
+            input_dim:List[int]=[32, 32, 3],
+            num_classes:int=10,
+            return_logits:bool=False,
+            **kwargs):
+        assert isinstance(half, bool), "'half' should be of type bool"
+        assert isinstance(return_logits, bool), '`return_logits` must be of type bool.'
+
+        if half is False:
+            name = 'AlexNet-t'
+            divisor = 1
+        elif half is True:
+            name = 'AlexNet-Half-t'
+            divisor = 2
+        
+        inputs = keras.layers.Input(shape=input_dim)
+        # Convolutional blocks
+        x = keras.layers.Conv2D(filters=48//divisor, kernel_size=(5, 5), strides=(1, 1), padding='same', bias_initializer='zeros')(inputs)
+        x = keras.layers.Activation(tf.nn.relu)(x)
+        x = keras.layers.MaxPooling2D(pool_size=(3, 3), strides=(2, 2), padding='valid')(x)
+        x = keras.layers.BatchNormalization()(x)
+
+        x = keras.layers.Conv2D(filters=128//divisor, kernel_size=(5, 5), strides=(1, 1), padding='same', bias_initializer='ones')(x)
+        x = keras.layers.Activation(tf.nn.relu)(x)
+        x = keras.layers.MaxPooling2D(pool_size=(3, 3), strides=(2, 2), padding='valid')(x)
+        x = keras.layers.BatchNormalization()(x)
+        
+        x = keras.layers.Conv2D(filters=192//divisor, kernel_size=(3, 3), strides=(1, 1), padding='same', bias_initializer='zeros')(x)
+        x = keras.layers.Activation(tf.nn.relu)(x)
+        x = keras.layers.BatchNormalization()(x)
+
+        x = keras.layers.Conv2D(filters=192//divisor, kernel_size=(3, 3), strides=(1, 1), padding='same', bias_initializer='ones')(x)
+        x = keras.layers.Activation(tf.nn.relu)(x)
+        x = keras.layers.BatchNormalization()(x)
+
+        x = keras.layers.Conv2D(filters=128//divisor, kernel_size=(3, 3), strides=(1, 1), padding='same', bias_initializer='ones')(x)
+        x = keras.layers.Activation(tf.nn.relu)(x)
+        x = keras.layers.MaxPooling2D(pool_size=(3, 3), strides=(2, 2), padding='valid')(x)
+        x = keras.layers.BatchNormalization()(x)
+
+        x = keras.layers.Flatten(name='flatten')(x)
+        # Fully-connected layers
+        x = keras.layers.Dense(512//divisor, bias_initializer='zeros')(x)
+        x = keras.layers.Activation(tf.nn.relu)(x)
+        x = keras.layers.Dropout(0.5)(x)
+        x = keras.layers.BatchNormalization()(x)
+
+        x = keras.layers.Dense(256//divisor, bias_initializer='zeros')(x)
+        x = keras.layers.Activation(tf.nn.relu)(x)
+        x = keras.layers.Dropout(0.5)(x)
+        x = keras.layers.BatchNormalization()(x)
+        
+        if return_logits is False:
+            if num_classes == 1:
+                outputs = keras.layers.Dense(units=num_classes, name='pred', activation=tf.nn.sigmoid)(x)
+            elif num_classes > 1:
+                outputs = keras.layers.Dense(units=num_classes, name='pred', activation=tf.nn.softmax)(x)
+        elif return_logits is True:
+            outputs = keras.layers.Dense(units=num_classes, name='logits')(x)
+        
+        model = keras.Model(inputs=inputs, outputs=outputs, name=name, **kwargs)
+        model.build(input_shape=[None, *input_dim])
+        return model
+
 if __name__ == '__main__':
     from dataloader import dataloader
     from models.classifiers.LeNet_5 import LeNet_5_ReLU_MaxPool
     from models.classifiers.AlexNet import AlexNet
-    from models.distillers.utils import add_fmap_output
+    from models.distillers.utils import convert_to_functional, add_intermediate_outputs
     from models.GANs.utils import MakeConditionalSyntheticGIFCallback, MakeInterpolateSyntheticGIFCallback
 
     def run_experiment_mnist_lenet5(pretrained_teacher:bool=False):
@@ -591,8 +687,12 @@ if __name__ == '__main__':
             )
             teacher.load_weights(filepath=f'./logs/{teacher.name}_best.h5')
         teacher.evaluate(ds['test'])
-        teacher = add_fmap_output(model=teacher, fmap_layer='flatten')
-
+        teacher = convert_to_functional(
+            model=teacher,
+            inputs=keras.layers.Input(shape=teacher.input_dim))
+        teacher = add_intermediate_outputs(
+            model=teacher,
+            layers=teacher.get_layer('flatten'))
         # Student (LeNet-5-HALF)
         student = LeNet_5_ReLU_MaxPool(half=True, input_dim=IMAGE_DIM, num_classes=NUM_CLASSES)
         student.build()
@@ -701,7 +801,12 @@ if __name__ == '__main__':
             )
             teacher.load_weights(filepath=f'./logs/{teacher.name}_best.h5')
         teacher.evaluate(ds['test'])
-        teacher = add_fmap_output(model=teacher, fmap_layer='flatten')
+        teacher = convert_to_functional(
+            model=teacher,
+            inputs=keras.layers.Input(shape=teacher.input_dim))
+        teacher = add_intermediate_outputs(
+            model=teacher,
+            layers=teacher.get_layer('flatten'))
 
         # Student (AlexNet-Half)
         student = AlexNet(half=True, input_dim=IMAGE_DIM, num_classes=NUM_CLASSES)
@@ -758,4 +863,117 @@ if __name__ == '__main__':
             validation_data=ds['test']
         )
 
-    run_experiment_mnist_alexnet(pretrained_teacher=False)
+    def run_experiment_mnist_alexnet_with_distribution_loss(pretrained_teacher:bool=False):
+        LATENT_DIM = 100
+        IMAGE_DIM = [28, 28, 1]
+        NUM_CLASSES = 10
+        BATCH_SIZE_TEACHER, BATCH_SIZE_DISTILL = 256, 500 # Change 512 to 500 for evenly distributed classes
+        NUM_EPOCHS_TEACHER, NUM_EPOCHS_DISTILL = 10, 200
+        OPTIMIZER_TEACHER = keras.optimizers.Adam(learning_rate=1e-3, epsilon=1e-8)
+        # OPTIMIZER_GENERATOR = keras.optimizers.Adam(learning_rate=2e-2, epsilon=1e-8)
+        # OPTIMIZER_STUDENT = keras.optimizers.Adam(learning_rate=2e-4, epsilon=1e-8)
+        OPTIMIZER_GENERATOR = keras.optimizers.SGD(learning_rate=2e-2)
+        OPTIMIZER_STUDENT = keras.optimizers.SGD(learning_rate=2e-4)
+        COEFF_OH, COEFF_AC, COEFF_IE, COEFF_CN, COEFF_DS = 1, 0.1, 5, 1, 1
+
+        print(' Experiment 1: CDAFL on MNIST. Teacher: AlexNet, student: AlexNet-Half '.center(80,'#'))
+
+        ds, info = dataloader(
+            dataset='mnist',
+            rescale='standardization',
+            batch_size_train=BATCH_SIZE_TEACHER,
+            batch_size_test=1024,
+            with_info=True
+        )
+        class_names = info.features['label'].names
+
+        # Teacher (AlexNet)
+        teacher = define_AlexNet_transparent(input_dim=IMAGE_DIM, num_classes=NUM_CLASSES)
+        teacher.compile(
+            metrics=['accuracy'], 
+            optimizer=OPTIMIZER_TEACHER,
+            loss=keras.losses.SparseCategoricalCrossentropy())
+
+        if pretrained_teacher is True:
+            teacher.load_weights('./pretrained/mnist/mean0_std1/AlexNet-t_9941.h5')
+        elif pretrained_teacher is False:
+            best_callback = keras.callbacks.ModelCheckpoint(
+                filepath=f'./logs/{teacher.name}_best.h5',
+                monitor='val_accuracy',
+                save_best_only=True,
+                save_weights_only=True,
+            )
+            csv_logger = keras.callbacks.CSVLogger(
+                filename=f'./logs/{teacher.name}.csv',
+                append=True
+            )
+            teacher.fit(
+                ds['train'],
+                epochs=NUM_EPOCHS_TEACHER,
+                callbacks=[best_callback, csv_logger],
+                validation_data=ds['test']
+            )
+            teacher.load_weights(filepath=f'./logs/{teacher.name}_best.h5')
+        teacher.evaluate(ds['test'])
+        teacher = add_intermediate_outputs(
+            model=teacher,
+            layers=[teacher.get_layer('flatten'), teacher.layers[3]])
+
+        # Student (AlexNet-Half)
+        student = define_AlexNet_transparent(half=True, input_dim=IMAGE_DIM, num_classes=NUM_CLASSES)
+        student.compile(metrics='accuracy')
+        student.evaluate(ds['test'])
+
+        generator = ConditionalDataFreeGenerator(
+            latent_dim=LATENT_DIM,
+            image_dim=IMAGE_DIM,
+            embed_dim=None,
+            num_classes=NUM_CLASSES,
+            onehot_input=True,
+            dafl_batchnorm=True
+        )
+        generator.build()
+
+        # Train one student with default data-free learning settings
+        distiller = CDAFL(
+            teacher=teacher, student=student, generator=generator)
+        distiller.compile(
+            optimizer_student=OPTIMIZER_STUDENT,
+            optimizer_generator=OPTIMIZER_GENERATOR,
+            onehot_loss_fn=False,
+            activation_loss_fn=True,
+            info_entropy_loss_fn=False,
+            conditional_loss_fn=True,
+            distribution_loss_fn=True,
+            distribution_layer=teacher.layers[4],
+            distill_loss_fn=keras.losses.KLDivergence(),
+            student_loss_fn=keras.losses.SparseCategoricalCrossentropy(),
+            batch_size=BATCH_SIZE_DISTILL,
+            num_batches=120,
+            coeff_oh=COEFF_OH,
+            coeff_ac=COEFF_AC,
+            coeff_ie=COEFF_IE,
+            coeff_cn=COEFF_CN,
+            coeff_ds=COEFF_DS,
+            confidence=None
+        )
+
+        csv_logger = keras.callbacks.CSVLogger(
+            filename=f'./logs/{distiller.name}_{student.name}_mnist.csv',
+            append=True
+        )
+        gif_maker = MakeConditionalSyntheticGIFCallback(
+            filename=f'./logs/{distiller.name}_{student.name}_mnist.gif',
+            postprocess_fn=lambda x:x*0.3081 + 0.1307,
+            normalize=False,
+            class_names=class_names,
+            delete_png=False,
+            save_freq=NUM_EPOCHS_DISTILL//50
+        )
+        distiller.fit(
+            epochs=NUM_EPOCHS_DISTILL,
+            callbacks=[csv_logger, gif_maker],
+            validation_data=ds['test']
+        )
+
+    run_experiment_mnist_alexnet_with_distribution_loss(pretrained_teacher=False)
