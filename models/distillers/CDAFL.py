@@ -473,15 +473,23 @@ class CDAFL(DataFreeDistiller):
 
             # Phase 1 - Training the conditional Generator
             latent_noise = tf.random.normal(shape=[self.batch_size, self.latent_dim])
-            # label = tf.cast(
-            #     tf.math.floor(tf.linspace(start=0, stop=self.num_classes, num=self.batch_size+1)[0:-1]),
-            #     dtype=tf.int32
-            # )
+            label = tf.cast(
+                tf.math.floor(tf.linspace(start=0, stop=self.num_classes, num=self.batch_size+1)[0:-1]),
+                dtype=tf.int32
+            )
             if self.onehot_input is True:
-                # # Convert to one-hot label
-                # oh_label = tf.one_hot(indices=label, depth=self.num_classes)
-                label = tf.random.uniform(shape=[self.batch_size, self.num_classes])
-                label = label/tf.tile(tf.math.reduce_sum(label, axis=1, keepdims=True), multiples=[1, self.num_classes])
+                # Convert to one-hot label
+                label = tf.one_hot(indices=label, depth=self.num_classes)
+                # Label smoothing
+                # smoothing = tf.tile(
+                #     input=tf.random.uniform(shape=[self.batch_size, 1], minval=0, maxval=0.5),
+                #     multiples=[1, self.num_classes]
+                # )
+                # label = (1 - smoothing) * label + smoothing / self.num_classes
+
+                # Alternative: sample from normal distribution
+                # label = tf.random.uniform(shape=[self.batch_size, self.num_classes])
+                # label = label/tf.tile(tf.math.reduce_sum(label, axis=1, keepdims=True), multiples=[1, self.num_classes])
                 x_synth = self.generator([latent_noise, label], training=True)
             elif self.onehot_input is False:
                 x_synth = self.generator([latent_noise, label], training=True)
@@ -933,8 +941,11 @@ if __name__ == '__main__':
         teacher.evaluate(ds['test'])
         teacher = add_intermediate_outputs(
             model=teacher,
-            layers=[teacher.get_layer('flatten'), teacher.layers[3]])
-
+            layers=[
+                teacher.get_layer('flatten'),
+                teacher.layers[3],
+            ]
+        )
         # Student (AlexNet-Half)
         student = define_AlexNet_transparent(half=True, input_dim=IMAGE_DIM, num_classes=NUM_CLASSES)
         student.compile(metrics='accuracy')
